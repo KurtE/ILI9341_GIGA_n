@@ -16,9 +16,6 @@
   MIT license, all text above must be included in any redistribution
  ****************************************************/
 
-// Optional Settings. 
-// To use Kurt's Flexiboard uncomment the line below:
-//#define KURTS_FLEXI
 
 //****************************************************************************
 // Touch options, Defaults to SPI
@@ -35,12 +32,6 @@
 #include <XPT2046_Touchscreen.h>
 #include <ILI9341_GIGA_n.h>
 
-#ifdef TOUCH_FLEXSPI
-#include <FlexIOSPI.h>
-#include <FlexIO_t4.h>
-#endif
-
-
 //****************************************************************************
 // This is calibration data for the raw touch data to the screen coordinates
 //****************************************************************************
@@ -53,48 +44,13 @@
 //****************************************************************************
 // Settings and objects
 //****************************************************************************
-#if defined(KURTS_FLEXI)
-#define TFT_DC 22
-#define TFT_CS 15
-#define TFT_RST -1
-#define TFT_SCK 14
-#define TFT_MISO 12
-#define TFT_MOSI 7
-#define DEBUG_PIN 13
-#define TOUCH_CS  8
-#else
-// *************** Change to your Pin numbers ***************
-#define TFT_DC  9
-#define TFT_CS 10
+#define TFT_DC 9
 #define TFT_RST 8
-#define TFT_SCK 13
-#define TFT_MISO 12
-#define TFT_MOSI 11
+#define TFT_CS 10
 #define TOUCH_CS  6
-#endif
-
-// If using SPI1 you can optionally setup to use other MISO pin on T4.1
-
-#ifdef TOUCH_SPI1
-#define TOUCH_MOSI 26
-#define TOUCH_MISO 39
-#define TOUCH_SCK  27
-#undef TOUCH_CS
-#define TOUCH_CS  38
-#endif
-
-// Setup flexSPI on same pins as SPI1
-#ifdef TOUCH_FLEXSPI
-#define TOUCH_MOSI 26
-#define TOUCH_MISO 39
-#define TOUCH_SCK  27
-#undef TOUCH_CS
-#define TOUCH_CS  38
-FlexIOSPI  flexspi(TOUCH_MOSI, TOUCH_MISO, TOUCH_SCK);
-#endif
 
 XPT2046_Touchscreen ts(TOUCH_CS);
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCK, TFT_MISO);
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
 // Size of the color selection boxes and the paintbrush size
 #define BOXSIZE 40
@@ -107,25 +63,12 @@ int oldcolor, currentcolor;
 void setup(void) {
   while (!Serial && (millis() <= 1000));
 
-  Serial.begin(9600);
+  Serial.begin(115200);
   Serial.println(F("Touch Paint!"));
 
   tft.begin();
 
-#if defined (TOUCH_SPI1)
-  Serial.println("Using SPI1 for Touch\n");
-  // Can setup to use SPI1
-  #ifdef TOUCH_MISO  
-  SPI1.setMISO(TOUCH_MISO);
-  #endif
   if (!ts.begin(SPI1)) {
-#elif defined(TOUCH_FLEXSPI)
-  Serial.println("Using flexSPI for Touch\n");
-  if (!ts.begin(flexspi)) {
-#else
-  // Or by default use SPI
-  if (!ts.begin()) {
-#endif
     Serial.println("Couldn't start touchscreen controller");
     while (1);
   }

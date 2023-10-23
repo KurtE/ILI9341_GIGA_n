@@ -12,7 +12,7 @@
 #include "font_Crystal.h"
 #include "font_ChanceryItalic.h"
 
-#define CENTER ILI9341_t3n::CENTER
+#define CENTER ILI9341_GIGA_n::CENTER
 
 // maybe a few GFX FOnts?
 #include <Fonts/FreeMono9pt7b.h>
@@ -44,15 +44,12 @@ const ili_fonts_test_t font_test_list[] = {
 } ;
 
 // *************** Change to your Pin numbers ***************
-#define TFT_DC  9
-#define TFT_CS 10
+#define TFT_DC 9
 #define TFT_RST 8
-#define TFT_SCK 13
-#define TFT_MISO 12
-#define TFT_MOSI 11
+#define TFT_CS 10
 #define TOUCH_CS  6
 
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCK, TFT_MISO);
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
 uint8_t test_screen_rotation = 0;
 
@@ -118,11 +115,11 @@ void setup() {
 void loop()
 {
   tft.setFont(Arial_12);
-  Serial.printf("\nRotation: %d\n", test_screen_rotation);
+  Serial.print("\nRotation: "); Serial.println(test_screen_rotation, DEC);
   tft.setRotation(test_screen_rotation);
   tft.fillWindow(ILI9341_RED);
   tft.setCursor(CENTER, CENTER);
-  tft.printf("Rotation: %d", test_screen_rotation);
+  tft.print("Rotation: "); tft.print(test_screen_rotation, DEC);
   test_screen_rotation = (test_screen_rotation + 1) & 0x3;
   /*  tft.setCursor(200, 300);
     Serial.printf("  Set cursor(200, 300), retrieved(%d %d)",
@@ -154,18 +151,18 @@ void loop()
 
 uint32_t displayStuff()
 {
-  elapsedMillis elapsed_time = 0;
+  uint32_t start_time = millis();
   tft.println("ABCDEFGHIJKLM");
   tft.println("nopqrstuvwxyz");
   tft.println("0123456789");
   tft.println("!@#$%^ &*()-");
   tft.println(); tft.println();
-  return (uint32_t) elapsed_time;
+  return (uint32_t) millis() - start_time;
 }
 
 uint32_t displayStuff1()
 {
-  elapsedMillis elapsed_time = 0;
+  uint32_t start_time = millis();
   tft.println("ABCDEFGHIJKLM");
   tft.println("nopqrstuvwxyz");
   tft.println("0123456789");
@@ -176,7 +173,10 @@ uint32_t displayStuff1()
 
   uint16_t width = tft.width();
   uint16_t height = tft.height();
-  Serial.printf("DS1 (%d,%d) %d %d\n", cursorX, cursorY, width, height);
+  Serial.print("DS1 ("); Serial.print(cursorX);
+  Serial.print(","); Serial.print(cursorY, DEC);
+  Serial.print(") "); Serial.print(width, DEC);
+  Serial.println(" "); Serial.print(height, DEC);
   uint16_t rect_x = width / 2 - 50;
   uint16_t rect_y = height - 50;
   tft.drawRect(rect_x, rect_y, 100, 40, ILI9341_WHITE);
@@ -222,7 +222,7 @@ uint32_t displayStuff1()
 
 
 
-  return (uint32_t) elapsed_time;
+  return (uint32_t) millis() - start_time;
 }
 
 void nextPage()
