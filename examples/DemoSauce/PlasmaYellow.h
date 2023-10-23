@@ -16,10 +16,10 @@ class PlasmaYellow : public BaseAnimation {
 public:
 	PlasmaYellow() : BaseAnimation() {};
 
-	void init( ILI9341_t3n tft );
+	void init( ILI9341_GIGA_n tft );
 	uint_fast16_t bgColor( void );
 	String title();
-	void perFrame( ILI9341_t3n tft, FrameParams frameParams );
+	void perFrame( ILI9341_GIGA_n tft, FrameParams frameParams );
 
 private:
   float _phase = 0;
@@ -27,7 +27,7 @@ private:
   uint_fast16_t _bgColor;
 };
 
-void PlasmaYellow::init( ILI9341_t3n tft ) {
+void PlasmaYellow::init( ILI9341_GIGA_n tft ) {
   _bgColor = tft.color565( 0xff, 0xff, 0 );
 }
 
@@ -39,7 +39,7 @@ String PlasmaYellow::title() {
 	return "PlasmaYellow";
 }
 
-void PlasmaYellow::perFrame( ILI9341_t3n tft, FrameParams frameParams ) {
+void PlasmaYellow::perFrame( ILI9341_GIGA_n tft, FrameParams frameParams ) {
   int_fast16_t w = (int_fast16_t)tft.width();
   int_fast16_t h = (int_fast16_t)tft.height();
 

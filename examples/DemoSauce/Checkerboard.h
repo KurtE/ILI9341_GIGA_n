@@ -21,17 +21,17 @@ class Checkerboard : public BaseAnimation {
 public:
 	Checkerboard() : BaseAnimation() {};
 
-	void init( ILI9341_t3n tft );
+	void init( ILI9341_GIGA_n tft );
 	uint_fast16_t bgColor( void );
 	String title();
-	void perFrame( ILI9341_t3n tft, FrameParams frameParams );
+	void perFrame( ILI9341_GIGA_n tft, FrameParams frameParams );
 
 private:
   float _phase = 0;
   uint_fast16_t _bgColor;
 };
 
-void Checkerboard::init( ILI9341_t3n tft ) {
+void Checkerboard::init( ILI9341_GIGA_n tft ) {
   _bgColor = tft.color565( 0xff, 0xbb, 0xbb );
 }
 
@@ -43,7 +43,7 @@ String Checkerboard::title() {
 	return "Checkerboard";
 }
 
-void Checkerboard::perFrame( ILI9341_t3n tft, FrameParams frameParams ) {
+void Checkerboard::perFrame( ILI9341_GIGA_n tft, FrameParams frameParams ) {
   int_fast16_t w = (int_fast16_t)tft.width();
   int_fast16_t h = (int_fast16_t)tft.height();
 

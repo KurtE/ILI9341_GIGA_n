@@ -59,9 +59,9 @@ const int_fast16_t DEFAULT_ANIM_TIME = 20.0f * 1000.0f;  // ms
 #define TFT_MISO 12
 #define TFT_MOSI 11
 #define TOUCH_CS  6
-const uint8_t MIC_PIN = 14;
-const uint8_t BACKLIGHT_PIN = 29;
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCK, TFT_MISO);
+const uint8_t MIC_PIN = A0;
+const uint8_t BACKLIGHT_PIN = 255;
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
 FrameParams frameParams;
 long previousMillis = 0;
@@ -107,11 +107,13 @@ int_fast8_t getActiveAnimIndex() {
 
 void setup() {
   // Backlight
-  pinMode( BACKLIGHT_PIN, OUTPUT );
-  analogWrite( BACKLIGHT_PIN, 1023 );
-
+  if(BACKLIGHT_PIN < 255) {
+    pinMode( BACKLIGHT_PIN, OUTPUT );
+    analogWrite( BACKLIGHT_PIN, 1023 );
+  }
   // Microphone
   pinMode( MIC_PIN, INPUT );
+
 
   tft.begin();
   tft.setRotation( 3 );
@@ -248,7 +250,7 @@ void loop() {
   frameParams.audioPeak = min( (uint_fast16_t)frameParams.audioPeak, (uint_fast16_t)511 );
 
   if( !isTransition ) {
-    tft.useFrameBuffer(1);  // turn on frame buffer. 
+    tft.useFrameBuffer(0);  // turn on frame buffer. 
     activeAnim->perFrame( tft, frameParams );
     tft.updateScreen(); // update the screen.
     tft.useFrameBuffer(0);  // turn off using frame buffer...
