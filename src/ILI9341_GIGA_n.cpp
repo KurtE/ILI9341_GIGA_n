@@ -66,6 +66,7 @@
 
 #define WIDTH ILI9341_TFTWIDTH
 #define HEIGHT ILI9341_TFTHEIGHT
+#define CBALLOC (ILI9341_TFTHEIGHT * ILI9341_TFTWIDTH * 2)
 
 // Constructor when using hardware ILI9241_KINETISK__pspi->  Faster, but must
 // use SPI pins
@@ -4302,101 +4303,113 @@ void ILI9341_GIGA_n::resetScrollBackgroundColor(uint16_t color) {
   scrollbgcolor = color;
 }
 
-//////////////////////////////////////////////////////
-// From Spin:
-#if defined(KINETISK)
-void ILI9341_GIGA_n::waitFifoNotFull(void) {
-  uint32_t sr;
-  uint32_t tmp __attribute__((unused));
-  do {
-    sr = _pkinetisk_spi->SR;
-    if (sr & 0xF0)
-      tmp = _pkinetisk_spi->POPR; // drain RX FIFO
-  } while ((uint32_t)(sr & (15 << 12)) > _fifo_full_test);
-}
-void ILI9341_GIGA_n::waitFifoEmpty(void) {
-  uint32_t sr;
-  uint32_t tmp __attribute__((unused));
-  do {
-    sr = _pkinetisk_spi->SR;
-    if (sr & 0xF0)
-      tmp = _pkinetisk_spi->POPR; // drain RX FIFO
-  } while ((sr & 0xF0F0) > 0);    // wait both RX & TX empty
-}
-void ILI9341_GIGA_n::waitTransmitComplete(void) {
-  uint32_t tmp __attribute__((unused));
-  while (!(_pkinetisk_spi->SR & SPI_SR_TCF))
-    ;                         // wait until final output done
-  tmp = _pkinetisk_spi->POPR; // drain the final RX FIFO word
-}
-void ILI9341_GIGA_n::waitTransmitComplete(uint32_t mcr) {
-  uint32_t tmp __attribute__((unused));
-  while (1) {
-    uint32_t sr = _pkinetisk_spi->SR;
-    if (sr & SPI_SR_EOQF)
-      break; // wait for last transmit
-    if (sr & 0xF0)
-      tmp = _pkinetisk_spi->POPR;
-  }
-  _pkinetisk_spi->SR = SPI_SR_EOQF;
-  _pkinetisk_spi->MCR = mcr;
-  while (_pkinetisk_spi->SR & 0xF0) {
-    tmp = _pkinetisk_spi->POPR;
-  }
-}
+uint8_t ILI9341_GIGA_n::useFrameBuffer(
+    boolean b) // use the frame buffer?  First call will allocate
+{
+#ifdef ENABLE_ILI9341_FRAMEBUFFER
 
-#elif defined(__IMXRT1052__) || defined(__IMXRT1062__) // Teensy 4.x
-void ILI9341_GIGA_n::waitFifoNotFull(void) {
-  uint32_t tmp __attribute__((unused));
-  do {
-    if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0) {
-      tmp = _pimxrt_spi->RDR; // Read any pending RX bytes in
-      if (pending_rx_count)
-        pending_rx_count--; // decrement count of bytes still levt
+  if (b) {
+    // First see if we need to allocate buffer
+    if (_pfbtft == NULL) {
+      // Hack to start frame buffer on 32 byte boundary
+      _we_allocated_buffer = (uint16_t *)malloc(CBALLOC + 32);
+      if (_we_allocated_buffer == NULL)
+        return 0; // failed
+      _pfbtft = (uint16_t *)(((uintptr_t)_we_allocated_buffer + 32) &
+                             ~((uintptr_t)(31)));
+      memset(_pfbtft, 0, CBALLOC);
     }
-  } while ((_pimxrt_spi->SR & LPSPI_SR_TDF) == 0);
-}
-void ILI9341_GIGA_n::waitFifoEmpty(void) {
-  uint32_t tmp __attribute__((unused));
-  do {
-    if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0) {
-      tmp = _pimxrt_spi->RDR; // Read any pending RX bytes in
-      if (pending_rx_count)
-        pending_rx_count--; // decrement count of bytes still levt
-    }
-  } while ((_pimxrt_spi->SR & LPSPI_SR_TCF) == 0);
-}
-void ILI9341_GIGA_n::waitTransmitComplete(void) {
-  uint32_t tmp __attribute__((unused));
-  //    digitalWriteFast(2, HIGH);
+    _use_fbtft = 1;
+    clearChangedRange(); // make sure the dirty range is updated.
+  } else
+    _use_fbtft = 0;
 
-  while (pending_rx_count) {
-    if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0) {
-      tmp = _pimxrt_spi->RDR; // Read any pending RX bytes in
-      pending_rx_count--;     // decrement count of bytes still levt
-    }
-  }
-  _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF; // Clear RX FIFO
-  //    digitalWriteFast(2, LOW);
-}
-
-uint16_t ILI9341_GIGA_n::waitTransmitCompleteReturnLast() {
-  uint32_t val=0;
-  //    digitalWriteFast(2, HIGH);
-
-  while (pending_rx_count) {
-    if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0) {
-      val = _pimxrt_spi->RDR; // Read any pending RX bytes in
-      pending_rx_count--;     // decrement count of bytes still levt
-    }
-  }
-  _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF; // Clear RX FIFO
-  return val;
-  //    digitalWriteFast(2, LOW);
-}
-
-void ILI9341_GIGA_n::waitTransmitComplete(uint32_t mcr) {
-  // BUGBUG:: figure out if needed...
-  waitTransmitComplete();
-}
+  return _use_fbtft;
+#else
+  return 0;
 #endif
+}
+
+void ILI9341_GIGA_n::freeFrameBuffer(void) // explicit call to release the buffer
+{
+#ifdef ENABLE_ILI9341_FRAMEBUFFER
+  if (_we_allocated_buffer) {
+    free(_we_allocated_buffer);
+    _pfbtft = NULL;
+    _use_fbtft = 0; // make sure the use is turned off
+    _we_allocated_buffer = NULL;
+  }
+#endif
+}
+void ILI9341_GIGA_n::updateScreen(void) // call to say update the screen now.
+{
+// Not sure if better here to check flag or check existence of buffer.
+// Will go by buffer as maybe can do interesting things?
+#ifdef ENABLE_ILI9341_FRAMEBUFFER
+  if (_use_fbtft) {
+    beginSPITransaction(_SPI_CLOCK);
+    if (_standard && !_updateChangedAreasOnly) {
+      // Doing full window.
+      setAddr(0, 0, _width - 1, _height - 1);
+      writecommand_cont(ILI9341_RAMWR);
+
+      // BUGBUG doing as one shot.  Not sure if should or not or do like
+      // main code and break up into transactions...
+      uint16_t *pfbtft_end =
+          &_pfbtft[(ILI9341_TFTWIDTH * ILI9341_TFTHEIGHT) - 1]; // setup
+      uint16_t *pftbft = _pfbtft;
+
+      // Quick write out the data;
+      while (pftbft < pfbtft_end) {
+        writedata16_cont(*pftbft++);
+      }
+      writedata16_last(*pftbft);
+    } else {
+      // setup just to output the clip rectangle area anded with updated area if
+      // enabled
+      int16_t start_x = _displayclipx1;
+      int16_t start_y = _displayclipy1;
+      int16_t end_x = _displayclipx2 - 1;
+      int16_t end_y = _displayclipy2 - 1;
+
+      if (_updateChangedAreasOnly) {
+        // maybe update range of values to update...
+        if (_changed_min_x > start_x)
+          start_x = _changed_min_x;
+        if (_changed_min_y > start_y)
+          start_y = _changed_min_y;
+        if (_changed_max_x < end_x)
+          end_x = _changed_max_x;
+        if (_changed_max_y < end_y)
+          end_y = _changed_max_y;
+      }
+
+      // Only do if actual area to update
+      if ((start_x <= end_x) && (start_y <= end_y)) {
+        setAddr(start_x, start_y, end_x, end_y);
+        writecommand_cont(ILI9341_RAMWR);
+
+        //if(Serial) Serial.printf("updateScreen (%d %d) (%d %d) (%d %d %d %d)\n", start_x, start_y, end_x, end_y,
+        //    _changed_min_x, _changed_min_y, _changed_max_x, _changed_max_y);
+
+        // BUGBUG doing as one shot.  Not sure if should or not or do like
+        // main code and break up into transactions...
+        uint16_t *pfbPixel_row = &_pfbtft[start_y * _width + start_x];
+        for (uint16_t y = start_y; y <= end_y; y++) {
+          uint16_t *pfbPixel = pfbPixel_row;
+          for (uint16_t x = start_x; x < end_x; x++) {
+            writedata16_cont(*pfbPixel++);
+          }
+          if (y < (end_y))
+            writedata16_cont(*pfbPixel);
+          else
+            writedata16_last(*pfbPixel);
+          pfbPixel_row += _width; // setup for the next row.
+        }
+      }
+    }
+    endSPITransaction();
+  }
+  clearChangedRange(); // make sure the dirty range is updated.
+#endif
+}

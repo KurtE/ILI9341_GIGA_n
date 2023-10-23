@@ -73,7 +73,7 @@
 // Clipping for speed and size
 #ifndef DISABLE_ILI9341_FRAMEBUFFER
 // disable for first pass
-//#define ENABLE_ILI9341_FRAMEBUFFER
+#define ENABLE_ILI9341_FRAMEBUFFER
 #endif
 
 // Allow way to override using SPI

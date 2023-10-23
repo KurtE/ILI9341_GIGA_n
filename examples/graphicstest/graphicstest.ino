@@ -21,7 +21,7 @@
 #define TFT_RST 8
 #define TFT_CS 10
 
-#define USE_FRAME_BUFFER 0
+#define USE_FRAME_BUFFER 1
 
 ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
