@@ -678,142 +678,10 @@ it first...
 
 uint8_t ILI9341_GIGA_n::readcommand8(uint8_t c, uint8_t index) {
   // Bail if not valid miso
+#ifdef LATER
   if (_miso == 0xff)
     return 0;
 
-#ifdef KINETISK
-  uint16_t wTimeout = 0xffff;
-  uint8_t r = 0;
-
-  beginSPITransaction(_SPI_CLOCK);
-  if (_spi_num == 0) {
-    // Only SPI object has larger queue
-    while (((_pkinetisk_spi->SR) & (15 << 12)) && (--wTimeout))
-      ; // wait until empty
-
-    // Make sure the last frame has been sent...
-    _pkinetisk_spi->SR = SPI_SR_TCF; // dlear it out;
-    wTimeout = 0xffff;
-    while (!((_pkinetisk_spi->SR) & SPI_SR_TCF) && (--wTimeout))
-      ; // wait until it says the last frame completed
-
-    // clear out any current received bytes
-    wTimeout = 0x10; // should not go more than 4...
-    while ((((_pkinetisk_spi->SR) >> 4) & 0xf) && (--wTimeout)) {
-      r = _pkinetisk_spi->POPR;
-    }
-
-    // writecommand(0xD9); // sekret command
-    _pkinetisk_spi->PUSHR =
-        0xD9 | (pcs_command << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-    //	while (((_pkinetisk_spi->SR) & (15 << 12)) > (3 << 12)) ; // wait if
-    //FIFO full
-
-    // writedata(0x10 + index);
-    _pkinetisk_spi->PUSHR =
-        (0x10 + index) | (pcs_data << 16) | SPI_PUSHR_CTAS(0);
-    //	while (((_pkinetisk_spi->SR) & (15 << 12)) > (3 << 12)) ; // wait if
-    //FIFO full
-    // writecommand(c);
-    _pkinetisk_spi->PUSHR =
-        c | (pcs_command << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-    //	while (((_pkinetisk_spi->SR) & (15 << 12)) > (3 << 12)) ; // wait if
-    //FIFO full
-
-    // readdata
-    _pkinetisk_spi->PUSHR = 0 | (pcs_data << 16) | SPI_PUSHR_CTAS(0);
-    //	while (((_pkinetisk_spi->SR) & (15 << 12)) > (3 << 12)) ; // wait if
-    //FIFO full
-
-    // Now wait until completed.
-    wTimeout = 0xffff;
-    while (((_pkinetisk_spi->SR) & (15 << 12)) && (--wTimeout))
-      ; // wait until empty
-
-    // Make sure the last frame has been sent...
-    _pkinetisk_spi->SR = SPI_SR_TCF; // dlear it out;
-    wTimeout = 0xffff;
-    while (!((_pkinetisk_spi->SR) & SPI_SR_TCF) && (--wTimeout))
-      ; // wait until it says the last frame completed
-
-    wTimeout = 0x10; // should not go more than 4...
-    // lets get all of the values on the FIFO
-    while ((((_pkinetisk_spi->SR) >> 4) & 0xf) && (--wTimeout)) {
-      r = _pkinetisk_spi->POPR;
-    }
-  } else {
-    while (((_pkinetisk_spi->SR) & (15 << 12)) && (--wTimeout))
-      ; // wait until empty
-
-    // Make sure the last frame has been sent...
-    _pkinetisk_spi->SR = SPI_SR_TCF; // dlear it out;
-    wTimeout = 0xffff;
-    while (!((_pkinetisk_spi->SR) & SPI_SR_TCF) && (--wTimeout))
-      ; // wait until it says the last frame completed
-
-    // clear out any current received bytes
-    wTimeout = 0x10; // should not go more than 4...
-    while ((((_pkinetisk_spi->SR) >> 4) & 0xf) && (--wTimeout)) {
-      r = _pkinetisk_spi->POPR;
-    }
-
-    // writecommand(0xD9); // sekret command
-    _pkinetisk_spi->PUSHR =
-        0xD9 | (pcs_command << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-    while (((_pkinetisk_spi->SR) & (15 << 12)) > (0 << 12))
-      ; // wait if FIFO full
-
-    // writedata(0x10 + index);
-    _pkinetisk_spi->PUSHR =
-        (0x10 + index) | (pcs_data << 16) | SPI_PUSHR_CTAS(0);
-    while (((_pkinetisk_spi->SR) & (15 << 12)) > (0 << 12))
-      ; // wait if FIFO full
-
-    // See if there are any return values to pop
-    while (((_pkinetisk_spi->SR) >> 4) & 0xf) {
-      r = _pkinetisk_spi->POPR;
-    }
-
-    // writecommand(c);
-    _pkinetisk_spi->PUSHR =
-        c | (pcs_command << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-    while (((_pkinetisk_spi->SR) & (15 << 12)) > (0 << 12))
-      ; // wait if FIFO full
-
-    // See if there are any return values to pop
-    while (((_pkinetisk_spi->SR) >> 4) & 0xf) {
-      r = _pkinetisk_spi->POPR;
-    }
-
-    // readdata
-    _pkinetisk_spi->PUSHR = 0 | (pcs_data << 16) | SPI_PUSHR_CTAS(0);
-    while (((_pkinetisk_spi->SR) & (15 << 12)) > (0 << 12))
-      ; // wait if FIFO full
-
-    // See if there are any return values to pop
-    while (((_pkinetisk_spi->SR) >> 4) & 0xf) {
-      r = _pkinetisk_spi->POPR;
-    }
-    // Now wait until completed.
-    wTimeout = 0xffff;
-    while (((_pkinetisk_spi->SR) & (15 << 12)) && (--wTimeout))
-      ; // wait until empty
-
-    // Make sure the last frame has been sent...
-    _pkinetisk_spi->SR = SPI_SR_TCF; // dlear it out;
-    wTimeout = 0xffff;
-    while (!((_pkinetisk_spi->SR) & SPI_SR_TCF) && (--wTimeout))
-      ; // wait until it says the last frame completed
-
-    wTimeout = 0x10; // should not go more than 4...
-    // lets get all of the values on the FIFO
-    while ((((_pkinetisk_spi->SR) >> 4) & 0xf) && (--wTimeout)) {
-      r = _pkinetisk_spi->POPR;
-    }
-  }
-  endSPITransaction();
-  return r; // get the received byte... should check for it first...
-#elif defined(__IMXRT1052__) || defined(__IMXRT1062__) // Teensy 4.x
   uint16_t wTimeout = 0xffff;
   uint8_t r = 0;
 
@@ -848,18 +716,9 @@ uint8_t ILI9341_GIGA_n::readcommand8(uint8_t c, uint8_t index) {
   }
   endSPITransaction();
   return r; // get the received byte... should check for it first...
-#else
-  beginSPITransaction(_SPI_CLOCK);
-  writecommand_cont(0xD9);
-  writedata8_cont(0x10 + index);
-
-  writecommand_cont(c);
-  writedata8_cont(0);
-  uint8_t r = waitTransmitCompleteReturnLast();
-  endSPITransaction();
-  return r;
-
-#endif
+  #else
+  return 0;
+  #endif
 }
 
 
@@ -967,9 +826,6 @@ void ILI9341_GIGA_n::setFrameRateControl(uint8_t mode) {
 // Read Pixel at x,y and get back 16-bit packed color
 #define READ_PIXEL_PUSH_BYTE 0x3f
 uint16_t ILI9341_GIGA_n::readPixel(int16_t x, int16_t y) {
-#ifdef KINETISK
-// BUGBUG:: Should add some validation of X and Y
-// Now if we are in buffer mode can return real fast
 #ifdef ENABLE_ILI9341_FRAMEBUFFER
   if (_use_fbtft) {
     x += _originx;
@@ -979,147 +835,13 @@ uint16_t ILI9341_GIGA_n::readPixel(int16_t x, int16_t y) {
   }
 #endif
 
-  if (_miso == 0xff)
-    return 0xffff; // bail if not valid miso
-
-  // First pass for other SPI busses use readRect to handle the read...
-  if (_spi_num != 0) {
-    // Only SPI object has larger queue
-    uint16_t colors;
-    readRect(x, y, 1, 1, &colors);
-    return colors;
-  }
-
-  uint8_t dummy __attribute__((unused));
-  uint8_t r, g, b;
-
-  beginSPITransaction(_SPI_CLOCK_READ);
-
-  // Update our origin.
-  x += _originx;
-  y += _originy;
-
-  setAddr(x, y, x, y);
-  writecommand_cont(ILI9341_RAMRD); // read from RAM
-  waitTransmitComplete();
-
-  // Push 4 bytes over SPI
-  _pkinetisk_spi->PUSHR =
-      0 | (pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-  waitFifoEmpty(); // wait for both queues to be empty.
-
-  _pkinetisk_spi->PUSHR =
-      0 | (pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-  _pkinetisk_spi->PUSHR =
-      0 | (pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-  _pkinetisk_spi->PUSHR =
-      0 | (pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_EOQ;
-
-  // Wait for End of Queue
-  while ((_pkinetisk_spi->SR & SPI_SR_EOQF) == 0)
-    ;
-  _pkinetisk_spi->SR = SPI_SR_EOQF; // make sure it is clear
-
-  // Read Pixel Data
-  dummy = _pkinetisk_spi->POPR; // Read a DUMMY byte of GRAM
-  r = _pkinetisk_spi->POPR;     // Read a RED byte of GRAM
-  g = _pkinetisk_spi->POPR;     // Read a GREEN byte of GRAM
-  b = _pkinetisk_spi->POPR;     // Read a BLUE byte of GRAM
-
-  endSPITransaction();
-  return color565(r, g, b);
-#else
-  // Kinetisk
+// This pass through will run everything then through readRect
   uint16_t colors = 0;
   readRect(x, y, 1, 1, &colors);
   return colors;
-#endif
 }
-
 // Now lets see if we can read in multiple pixels
-#ifdef KINETISK
-void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
-                           uint16_t *pcolors) {
-  // Use our Origin.
-  x += _originx;
-  y += _originy;
-// BUGBUG:: Should add some validation of X and Y
 
-#ifdef ENABLE_ILI9341_FRAMEBUFFER
-  if (_use_fbtft) {
-    uint16_t *pfbPixel_row = &_pfbtft[y * _width + x];
-    for (; h > 0; h--) {
-      uint16_t *pfbPixel = pfbPixel_row;
-      for (int i = 0; i < w; i++) {
-        *pcolors++ = *pfbPixel++;
-      }
-      pfbPixel_row += _width;
-    }
-    return;
-  }
-#endif
-
-  if (_miso == 0xff)
-    return; // bail if not valid miso
-
-  uint8_t rgb[3]; // RGB bytes received from the display
-  uint8_t rgbIdx = 0;
-  uint32_t txCount =
-      w * h * 3; // number of bytes we will transmit to the display
-  uint32_t rxCount =
-      txCount; // number of bytes we will receive back from the display
-
-  beginSPITransaction(_SPI_CLOCK_READ);
-
-  setAddr(x, y, x + w - 1, y + h - 1);
-  writecommand_cont(ILI9341_RAMRD); // read from RAM
-
-  // transmit a DUMMY byte before the color bytes
-  _pkinetisk_spi->PUSHR =
-      0 | (pcs_data << 16) | SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-
-  // skip values returned by the queued up transfers and the current in-flight
-  // transfer
-  uint32_t sr = _pkinetisk_spi->SR;
-  uint8_t skipCount = ((sr >> 4) & 0xF) + ((sr >> 12) & 0xF) + 1;
-
-  while (txCount || rxCount) {
-    // transmit another byte if possible
-    if (txCount && (_pkinetisk_spi->SR & 0xF000) <= _fifo_full_test) {
-      txCount--;
-      if (txCount) {
-        _pkinetisk_spi->PUSHR = READ_PIXEL_PUSH_BYTE | (pcs_data << 16) |
-                                SPI_PUSHR_CTAS(0) | SPI_PUSHR_CONT;
-      } else {
-        _pkinetisk_spi->PUSHR = READ_PIXEL_PUSH_BYTE | (pcs_data << 16) |
-                                SPI_PUSHR_CTAS(0) | SPI_PUSHR_EOQ;
-      }
-    }
-
-    // receive another byte if possible, and either skip it or store the color
-    if (rxCount && (_pkinetisk_spi->SR & 0xF0)) {
-      rgb[rgbIdx] = _pkinetisk_spi->POPR;
-
-      if (skipCount) {
-        skipCount--;
-      } else {
-        rxCount--;
-        rgbIdx++;
-        if (rgbIdx == 3) {
-          rgbIdx = 0;
-          *pcolors++ = color565(rgb[0], rgb[1], rgb[2]);
-        }
-      }
-    }
-  }
-
-  // wait for End of Queue
-  while ((_pkinetisk_spi->SR & SPI_SR_EOQF) == 0)
-    ;
-  _pkinetisk_spi->SR = SPI_SR_EOQF; // make sure it is clear
-  endSPITransaction();
-}
-#elif defined(__IMXRT1052__) || defined(__IMXRT1062__) // Teensy 4.x
 void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
                            uint16_t *pcolors) {
   // Use our Origin.
@@ -1162,22 +884,14 @@ void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
 
   while (txCount || rxCount) {
     // transmit another byte if possible
-    if (txCount && (_pimxrt_spi->SR & LPSPI_SR_TDF)) {
+    if (txCount && (_pgigaSpi->SR & SPI_SR_TXP)) {
       txCount--;
-      if (txCount) {
-        _pimxrt_spi->TDR = 0;
-      } else {
-        maybeUpdateTCR(_tcr_dc_not_assert |
-                       LPSPI_TCR_FRAMESZ(7)); // remove the CONTINUE...
-        while ((_pimxrt_spi->SR & LPSPI_SR_TDF) == 0)
-          ; // wait if queue was full
-        _pimxrt_spi->TDR = 0;
-      }
+      *((__IO uint8_t *)&_pgigaSpi->TXDR) = 0;
     }
 
     // receive another byte if possible, and either skip it or store the color
-    if (rxCount && !(_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY)) {
-      rgb[rgbIdx] = _pimxrt_spi->RDR;
+    if (rxCount && (_pgigaSpi->SR & SPI_SR_RXP)) {
+      rgb[rgbIdx] = *((__IO uint8_t *)&_pgigaSpi->RXDR);
 
       rxCount--;
       rgbIdx++;
@@ -1191,88 +905,6 @@ void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
   // We should have received everything so should be done
   endSPITransaction();
 }
-
-#else
-
-// Teensy LC version
-void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
-                           uint16_t *pcolors) {
-  #ifdef LATER
-  // Use our Origin.
-  x += _originx;
-  y += _originy;
-  // BUGBUG:: Should add some validation of X and Y
-
-  if (_miso == 0xff)
-    return; // bail if not valid miso
-
-  uint8_t rgb[3]; // RGB bytes received from the display
-  uint8_t rgbIdx = 0;
-  uint32_t txCount =
-      w * h * 3; // number of bytes we will transmit to the display
-  uint32_t rxCount =
-      txCount; // number of bytes we will receive back from the display
-
-  beginSPITransaction(_SPI_CLOCK_READ);
-
-  setAddr(x, y, x + w - 1, y + h - 1);
-  writecommand_cont(ILI9341_RAMRD); // read from RAM
-
-  // transmit a DUMMY byte before the color bytes
-  writedata8_cont(0);
-
-  // Wait until that one returns, Could do a little better and double buffer but
-  // this is easer for now.
-  waitTransmitComplete();
-
-// Since double buffer setup lets try keeping read/write in sync
-#define RRECT_TIMEOUT 0xffff
-#undef READ_PIXEL_PUSH_BYTE
-#define READ_PIXEL_PUSH_BYTE 0 // try with zero to see...
-  uint16_t timeout_countdown = RRECT_TIMEOUT;
-  uint16_t dl_in;
-  // Write out first byte:
-
-  while (!(_pkinetisl_spi->S & SPI_S_SPTEF))
-    ; // Not worried that this can completely hang?
-  _pkinetisl_spi->DL = READ_PIXEL_PUSH_BYTE;
-
-  while (rxCount && timeout_countdown) {
-    // Now wait until we can output something
-    dl_in = 0xffff;
-    if (rxCount > 1) {
-      while (!(_pkinetisl_spi->S & SPI_S_SPTEF))
-        ; // Not worried that this can completely hang?
-      if (_pkinetisl_spi->S & SPI_S_SPRF)
-        dl_in = _pkinetisl_spi->DL;
-      _pkinetisl_spi->DL = READ_PIXEL_PUSH_BYTE;
-    }
-
-    // Now wait until there is a byte available to receive
-    while ((dl_in != 0xffff) && !(_pkinetisl_spi->S & SPI_S_SPRF) &&
-           --timeout_countdown)
-      ;
-    if (timeout_countdown) { // Make sure we did not get here because of timeout
-      rxCount--;
-      rgb[rgbIdx] = (dl_in != 0xffff) ? dl_in : _pkinetisl_spi->DL;
-      rgbIdx++;
-      if (rgbIdx == 3) {
-        rgbIdx = 0;
-        *pcolors++ = color565(rgb[0], rgb[1], rgb[2]);
-      }
-      timeout_countdown = timeout_countdown;
-    }
-  }
-
-  // Debug code.
-  /*	if (timeout_countdown == 0) {
-                  Serial.print("RRect Timeout ");
-                  Serial.println(rxCount, DEC);
-          } */
-  endSPITransaction();
-#endif  
-}
-#endif
 
 // Now lets see if we can writemultiple pixels
 void ILI9341_GIGA_n::writeRect(int16_t x, int16_t y, int16_t w, int16_t h,
@@ -4303,6 +3935,27 @@ void ILI9341_GIGA_n::resetScrollBackgroundColor(uint16_t color) {
   scrollbgcolor = color;
 }
 
+
+
+//=======================================================================
+// Add optinal support for using frame buffer to speed up complex outputs
+//=======================================================================
+void ILI9341_GIGA_n::setFrameBuffer(uint16_t *frame_buffer) {
+#ifdef ENABLE_ILI9341_FRAMEBUFFER
+  _pfbtft = frame_buffer;
+  /*  // Maybe you don't want the memory cleared as you may be playing games
+  wiht multiple buffers.
+  if (_pfbtft != NULL) {
+          memset(_pfbtft, 0, ILI9341_TFTHEIGHT*ILI9341_TFTWIDTH*2);
+  }
+  */
+  _dma_state &= ~ILI9341_DMA_INIT; // clear that we init the dma chain as our
+                                   // buffer has changed...
+
+#endif
+}
+
+
 uint8_t ILI9341_GIGA_n::useFrameBuffer(
     boolean b) // use the frame buffer?  First call will allocate
 {
@@ -4412,4 +4065,22 @@ void ILI9341_GIGA_n::updateScreen(void) // call to say update the screen now.
   }
   clearChangedRange(); // make sure the dirty range is updated.
 #endif
+}
+
+bool ILI9341_GIGA_n::updateScreenAsync(bool update_cont) {
+  if (update_cont) return false;
+
+  updateScreen();
+  return true;
+}
+void ILI9341_GIGA_n::waitUpdateAsyncComplete(void) {
+
+}
+
+void ILI9341_GIGA_n::endUpdateAsync() {
+
+} // Turn of the continueous mode fla
+
+void ILI9341_GIGA_n::dumpDMASettings() {
+
 }
