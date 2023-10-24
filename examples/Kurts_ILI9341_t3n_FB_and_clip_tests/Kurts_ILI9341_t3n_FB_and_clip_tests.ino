@@ -1,3 +1,5 @@
+#include <LibPrintf.h>
+
 #include <Adafruit_GFX.h>    // Core graphics library
 #include <ili9341_GIGA_n_font_Arial.h>
 #include <ili9341_GIGA_n_font_ArialBold.h>
@@ -5,74 +7,23 @@
 #include <Fonts/FreeMonoBoldOblique12pt7b.h>
 #include <Fonts/FreeSerif12pt7b.h>
 
+// BUGBUG:: For now use libprintf
+
 #define ROTATION 3
 
 #include "SPI.h"
-#if defined(__IMXRT1052__) || defined(__IMXRT1062__)  // Teensy 4.x 
-#define TFT_DC  9  // only CS pin 
-#define TFT_CS 10  // using standard pin
+#define TFT_DC 9
 #define TFT_RST 8
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
-#else
-//#define DEFAULT_PINS
-//#define USE_SPI1
-#define KURTS_FLEXI
-//#define FRANKS_C64
-
-#ifdef KURTS_FLEXI
-#define TFT_DC 22
-#define TFT_CS 15
-#define TFT_RST -1
-#define TFT_SCK 14
-#define TFT_MISO 12
-#define TFT_MOSI 7
-#define DEBUG_PIN 13
-
-#elif defined(FRANKS_C64)
-#define SCK       14
-#define MISO      39
-#define MOSI      28
-#define TFT_TOUCH_CS    38
-#define TFT_TOUCH_INT   37
-#define TFT_DC          20
-#define TFT_CS          21
-#define TFT_RST        -1  // 255 = unused, connected to 3.3V
-#define TFT_SCK        SCK
-#define TFT_MOSI        MOSI
-#define TFT_MISO        MISO
-
-#elif defined(DEFAULT_PINS)
-#define TFT_DC  9
 #define TFT_CS 10
-#define TFT_RST 8
-#define TFT_SCK 13
-#define TFT_MISO 12
-#define TFT_MOSI 11
 
-#elif defined(USE_SPI1)
-#define TFT_DC 31
-#define TFT_CS 10 // any pin will work not hardware
-#define TFT_RST 8
-#define TFT_SCK 32
-#define TFT_MISO 5
-#define TFT_MOSI 21
-#define DEBUG_PIN 13
-#else
-//#define TFT_DC  9
-#define TFT_DC 45
-#define TFT_CS 10
-#define TFT_RST 7
-#define TFT_SCK 13
-#define TFT_MISO 12
-#define TFT_MOSI 11
-#endif
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCK, TFT_MISO);
-#endif
+#define USE_FRAME_BUFFER 1
+
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
 Adafruit_GFX_Button button;
 
 // Let's allocate the frame buffer ourself.
-DMAMEM uint16_t tft_frame_buffer[ILI9341_TFTWIDTH * ILI9341_TFTHEIGHT];
+uint16_t tft_frame_buffer[ILI9341_TFTWIDTH * ILI9341_TFTHEIGHT];
 
 uint8_t use_dma = 0;
 uint8_t use_clip_rect = 0;
@@ -85,7 +36,7 @@ uint8_t use_fb = 0;
 void setup() {
   while (!Serial && (millis() < 4000)) ;
   Serial.begin(115200);
-  //Serial.printf("Begin: CS:%d, DC:%d, MOSI:%d, MISO: %d, SCK: %d, RST: %d\n", TFT_CS, TFT_DC, TFT_MOSI, TFT_MISO, TFT_SCK, TFT_RST);
+  //printf("Begin: CS:%d, DC:%d, MOSI:%d, MISO: %d, SCK: %d, RST: %d\n", TFT_CS, TFT_DC, TFT_MOSI, TFT_MISO, TFT_SCK, TFT_RST);
 
   tft.begin();
   tft.setFrameBuffer(tft_frame_buffer);
@@ -187,7 +138,7 @@ const uint8_t pict4bpp[] = {
 
                            
 void drawTestScreen() {
-  Serial.printf("Use FB: %d ", use_fb); Serial.flush();
+  printf("Use FB: %d ", use_fb); Serial.flush();
   tft.useFrameBuffer(use_fb);
   SetupOrClearClipRectAndOffsets();
   uint32_t start_time = millis();
@@ -223,7 +174,7 @@ void drawTestScreen() {
   for (uint i=0; i < 50; i++) {
     uint16_t pixel_color = tft.readPixel(i,i);
     if (pixel_color != pixel_data[i*50+i]) {
-      Serial.printf("Read rect/pixel mismatch: %d %x %x\n", i, pixel_color,pixel_data[i*50+i]);
+      printf("Read rect/pixel mismatch: %d %x %x\n", i, pixel_color,pixel_data[i*50+i]);
     }    
   }
 
@@ -275,7 +226,7 @@ void drawTestScreen() {
 
   if (use_dma && use_fb) {
     delay(500);
-    Serial.printf("DMA error status: %x\n", DMA_ES);
+    //printf("DMA error status: %x\n", DMA_ES);
   }
 
   use_fb = use_fb ? 0 : 1 ;
@@ -298,11 +249,11 @@ void fillScreenTest() {
 
 }
 void printTextSizes(const char *sz) {
-  Serial.printf("%s(%d,%d): SPL:%u ", sz, tft.getCursorX(), tft.getCursorY(), tft.strPixelLen(sz));
+  printf("%s(%d,%d): SPL:%u ", sz, tft.getCursorX(), tft.getCursorY(), tft.strPixelLen(sz));
   int16_t x, y;
   uint16_t w, h;
   tft.getTextBounds(sz, tft.getCursorX(), tft.getCursorY(), &x, &y, &w, &h);
-  Serial.printf(" Rect(%d, %d, %u %u)\n", x, y, w, h);  
+  printf(" Rect(%d, %d, %u %u)\n", x, y, w, h);  
   tft.drawRect(x, y, w, h, ILI9341_GREEN);
 }
 
@@ -384,7 +335,7 @@ void drawTextScreen(bool fOpaque) {
 
 
   tft.updateScreen();
-  Serial.printf("Use FB: %d OP: %d, DT: %d OR: %d\n", use_fb, fOpaque, use_set_origin, millis() - start_time);
+  printf("Use FB: %d OP: %d, DT: %d OR: %d\n", use_fb, fOpaque, use_set_origin, millis() - start_time);
 }
 
 
@@ -412,7 +363,7 @@ void drawGFXTextScreen(bool fOpaque) {
   tft.updateScreen();
   tft.setTextSize(1);
   tft.setFont();
-  Serial.printf("Use FB: %d OP: %d, DT: %d\n", use_fb, fOpaque, millis() - start_time);
+  printf("Use FB: %d OP: %d, DT: %d\n", use_fb, fOpaque, millis() - start_time);
 }
 //=============================================================================
 // Wait for user input
@@ -440,7 +391,7 @@ void WaitForFrame(bool fCont, uint32_t wait_frame_count) {
 void testDMAContUpdate(bool fCont) {
   // Force frame buffer on
 
-  Serial.printf("continuous DMA udpate test - Frame mode on\n"); Serial.flush();
+  printf("continuous DMA udpate test - Frame mode on\n"); Serial.flush();
   if (!fCont) {
     Serial.println("Step Mode");
     Serial.flush();
@@ -457,12 +408,12 @@ void testDMAContUpdate(bool fCont) {
     for (int i = 0; i < (ILI9341_TFTWIDTH * ILI9341_TFTHEIGHT); i++)
     {
       if (*pw != ILI9341_GREEN) {
-        Serial.printf("tft.fillScreen(ILI9341_GREEN) not green? %d != %x\n", i, *pw);
+        printf("tft.fillScreen(ILI9341_GREEN) not green? %d != %x\n", i, *pw);
         error_count++;
       }
       pw++;
     }
-    Serial.printf("tft.fillScreen(ILI9341_GREEN(%x)) error count = %d\n", ILI9341_GREEN, error_count);
+    printf("tft.fillScreen(ILI9341_GREEN(%x)) error count = %d\n", ILI9341_GREEN, error_count);
   }
 
   if (fCont)
@@ -530,7 +481,7 @@ void loop(void) {
 
     // See if We have a dma operation in progress?
     if (tft.asyncUpdateActive()) {
-      Serial.printf("Async Update active DMA error status: %x\n", DMA_ES);
+      //printf("Async Update active DMA error status: %x\n", DMA_ES);
       //tft.dumpDMASettings();
     }
 
@@ -549,7 +500,7 @@ void loop(void) {
 
     if (ich == 's') {
       use_set_origin = !use_set_origin;
-      if (use_set_origin) Serial.printf("Set origin to %d, %d\n", ORIGIN_TEST_X, ORIGIN_TEST_Y);
+      if (use_set_origin) printf("Set origin to %d, %d\n", ORIGIN_TEST_X, ORIGIN_TEST_Y);
       else Serial.println("Clear origin");
       return;
     }
