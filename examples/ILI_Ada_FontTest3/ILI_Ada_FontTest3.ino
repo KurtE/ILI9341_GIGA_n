@@ -1,4 +1,6 @@
 #include <Adafruit_GFX.h>
+#include <elapsedMillis.h>
+#include <LibPrintf.h>
 
 #include <SPI.h>
 #include <ILI9341_GIGA_n.h>
@@ -12,10 +14,10 @@
 #include "font_Crystal.h"
 #include "font_ChanceryItalic.h"
 
-#define ILI9341_CS 10
-#define ILI9341_DC 9
-#define ILI9341_RST 8
-ILI9341_t3n tft = ILI9341_t3n(ILI9341_CS, ILI9341_DC, ILI9341_RST);
+#define TFT_CS 10
+#define TFT_DC 9
+#define TFT_RST 8
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 uint8_t test_screen_rotation = 0;
 
 
@@ -80,7 +82,7 @@ void setup() {
 
 void loop()
 {
-  Serial.printf("\nRotation: %d\n", test_screen_rotation);
+  printf("\nRotation: %d\n", test_screen_rotation);
   tft.setRotation(test_screen_rotation);
   test_screen_rotation = (test_screen_rotation + 1) & 0x3;
   

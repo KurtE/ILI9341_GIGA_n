@@ -28,10 +28,16 @@ www.jeffreythompson.org
 #include <SPI.h>
 #include <ili9341_GIGA_n_font_Arial.h>
 
-#define ILI9341_RST 23 //23 for t4
-#define ILI9341_DC 9
-#define ILI9341_CS 10
-ILI9341_t3n tft = ILI9341_t3n(ILI9341_CS, ILI9341_DC, ILI9341_RST);
+#define TFT_RST 8 //23 for t4
+#define TFT_DC 9
+#define TFT_CS 10
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
+
+#define ARM_DEMCR               (*(volatile uint32_t *)0xE000EDFC) // Debug Exception and Monitor Control
+#define ARM_DEMCR_TRCENA                (1 << 24)        // Enable debugging & monitoring blocks
+#define ARM_DWT_CTRL            (*(volatile uint32_t *)0xE0001000) // DWT control register
+#define ARM_DWT_CTRL_CYCCNTENA          (1 << 0)                // Enable cycle count
+#define ARM_DWT_CYCCNT          (*(volatile uint32_t *)0xE0001004) // Cycle count register
 
 
 const int dim = 240;             // screen dimensions (square window)

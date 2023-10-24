@@ -19,10 +19,10 @@ BR_DATUM = Bottom right
 #include <SPI.h>
 #include <ili9341_GIGA_n_font_Arial.h>
 
-#define ILI9341_RST 23
-#define ILI9341_DC 9
-#define ILI9341_CS 10
-ILI9341_t3n tft = ILI9341_t3n(ILI9341_CS, ILI9341_DC, ILI9341_RST);
+#define TFT_RST 8
+#define TFT_DC 9
+#define TFT_CS 10
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
 unsigned long drawTime = 0;
 
@@ -49,7 +49,7 @@ void loop() {
     tft.setTextDatum(MC_DATUM);
     
     tft.setTextColor(ILI9341_YELLOW);
-    tft.drawString("TEENSY 4",160,120);
+    tft.drawString("GIGA R1",160,120);
     delay(1000);
     tft.fillScreen(ILI9341_BLACK);
   }

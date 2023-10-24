@@ -12,6 +12,7 @@
   Written by Limor Fried/Ladyada for Adafruit Industries.
   MIT license, all text above must be included in any redistribution
  ****************************************************/
+#include <elapsedMillis.h>
 
 #include "SPI.h"
 #include "ILI9341_GIGA_n.h"
@@ -27,7 +28,7 @@
 #define TFT_MOSI 11
 #define TOUCH_CS  6
 
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCK, TFT_MISO);
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
 #define DEBUG_PIN 0
 
@@ -51,7 +52,6 @@ void setup() {
 #endif
   Serial.println("After TFT Begin");
   tft.fillScreen(ILI9341_BLACK);
-  Serial.println(CORE_PIN10_CONFIG, HEX);
   tft.setTextColor(ILI9341_YELLOW);
   tft.setTextSize(2);
   tft.println("Waiting for Arduino Serial Monitor...");

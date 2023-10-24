@@ -1,4 +1,5 @@
 #include <Adafruit_GFX.h>
+#include <elapsedMillis.h>
 
 #include <SPI.h>
 #include <ILI9341_GIGA_n.h>
@@ -9,7 +10,7 @@
 #define TFT_RST 8
 #define TFT_DC  9  // only CS pin 
 #define TFT_CS  10   // using standard pin
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
 void setup() {
   Serial.begin(38400);
