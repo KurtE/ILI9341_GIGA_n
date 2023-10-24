@@ -598,8 +598,12 @@ protected:
 //////////////////////////////
 
 // add support to allow only one hardware CS (used for dc)
-  volatile uint8_t *_dcport;
-  uint8_t _dcpinmask;
+  __IO uint32_t *_dcBSRR; 
+  uint16_t _dcpinmask;
+  __IO uint32_t *_csBSRR; 
+  uint16_t _cspinmask;
+
+
 #ifdef ENABLE_ILI9341_FRAMEBUFFER
   // Add support for optional frame buffer
   uint16_t *_pfbtft;              // Optional Frame buffer
@@ -671,7 +675,8 @@ protected:
 
   void beginSPITransaction(uint32_t clock) __attribute__((always_inline)) {
     _pspi->beginTransaction(SPISettings(clock, MSBFIRST, SPI_MODE0));
-    digitalWrite(_cs, LOW);
+    //digitalWrite(_cs, LOW);
+    *_csBSRR = (uint32_t)(_cspinmask << 16);  // reset
     uint32_t cr1 = _pgigaSpi->CR1;
     _pgigaSpi->CR1 &= ~SPI_CR1_SPE_Msk;
 
@@ -684,7 +689,8 @@ protected:
 
   }
   void endSPITransaction() __attribute__((always_inline)) {
-    digitalWrite(_cs, HIGH);
+    *_csBSRR = (uint32_t)(_cspinmask);  // set
+    //digitalWrite(_cs, HIGH);
     _pspi->endTransaction();
   }
 
@@ -725,7 +731,8 @@ protected:
   void setCommandMode() __attribute__((always_inline)) {
     if (!_dcpinAsserted) {
       waitTransmitComplete();
-      digitalWrite(_dc, LOW);
+      *_dcBSRR = (uint32_t)(_dcpinmask << 16);  // reset
+      //digitalWrite(_dc, LOW);
       _dcpinAsserted = 1;
     }
   }
@@ -733,7 +740,8 @@ protected:
   void setDataMode() __attribute__((always_inline)) {
     if (_dcpinAsserted) {
       waitTransmitComplete();
-      digitalWrite(_dc, HIGH);
+      *_dcBSRR = (uint32_t)(_dcpinmask);  // set
+      //digitalWrite(_dc, HIGH);
       _dcpinAsserted = 0;
     }
   }

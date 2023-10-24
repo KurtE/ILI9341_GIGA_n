@@ -54,6 +54,7 @@
 #include "ILI9341_GIGA_n.h"
 #include <SPI.h>
 #include <api/itoa.h>
+#include "pinDefinitions.h"
 
 //#define DEBUG_ASYNC_UPDATE  // Enable to print out dma info
 //#define DEBUG_ASYNC_LEDS	// Enable to use digitalWrites to Debug
@@ -1443,6 +1444,9 @@ void ILI9341_GIGA_n::begin(uint32_t spi_clock, uint32_t spi_clock_read) {
   // BUGBUG:: maybe better place to do this
   // But lets muck up a few registers.
   // make sure CR1 has the master start
+  // BUGBUG: Guessing table exists in system somewhere.
+  static  GPIO_TypeDef * const port_table[] = { GPIOA, GPIOB, GPIOC, GPIOD, GPIOE, GPIOF, GPIOG, GPIOH, GPIOI, GPIOJ, GPIOK };
+
   uint32_t cr1 = _pgigaSpi->CR1;
   _pgigaSpi->CR1 &= ~SPI_CR1_SPE_Msk;
 
@@ -1457,12 +1461,21 @@ void ILI9341_GIGA_n::begin(uint32_t spi_clock, uint32_t spi_clock_read) {
   pcs_command = 0;
   pinMode(_cs, OUTPUT);
   digitalWrite(_cs, HIGH);
-//  _csport = portOutputRegister(digitalPinToPort(_cs));
-//  _cspinmask = digitalPinToBitMask(_cs);
-//  *_csport |= _cspinmask;
+
+
+  PinName pin_name = g_APinDescription[_cs].name;
+  GPIO_TypeDef  *  port = port_table[pin_name >> 4];
+  _csBSRR = (__IO uint32_t *)(&port->BSRR);
+  _cspinmask = 1 << (pin_name & 0xf);
+
   pinMode(_dc, OUTPUT);
   digitalWrite(_dc, HIGH);
   _dcpinAsserted = 0;
+
+  pin_name = g_APinDescription[_dc].name;
+  port = port_table[pin_name >> 4];
+  _dcBSRR = (__IO uint32_t *)(&port->BSRR);
+  _dcpinmask = 1 << (pin_name & 0xf);
 
   // toggle RST low to reset
   if (_rst < 255) {
