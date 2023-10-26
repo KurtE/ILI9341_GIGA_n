@@ -1,6 +1,6 @@
 #include <LibPrintf.h>
 
-#include <Adafruit_GFX.h>    // Core graphics library
+#include <Adafruit_GFX.h>  // Core graphics library
 #include <ili9341_GIGA_n_font_Arial.h>
 #include <ili9341_GIGA_n_font_ArialBold.h>
 #include <ILI9341_GIGA_n.h>
@@ -39,7 +39,8 @@ uint8_t use_fb = 0;
 #define ORIGIN_TEST_Y 50
 
 void setup() {
-  while (!Serial && (millis() < 4000)) ;
+  while (!Serial && (millis() < 4000))
+    ;
   Serial.begin(115200);
   //printf("Begin: CS:%d, DC:%d, MOSI:%d, MISO: %d, SCK: %d, RST: %d\n", TFT_CS, TFT_DC, TFT_MOSI, TFT_MISO, TFT_SCK, TFT_RST);
 
@@ -56,15 +57,20 @@ void setup() {
   // read diagnostics (optional but can help debug problems)
   printf(">>>>> Before read command8s  <<<<<\n");
   uint8_t x = tft.readcommand8(ILI9341_RDMODE);
-  Serial.print("Display Power Mode: 0x"); Serial.println(x, HEX);
+  Serial.print("Display Power Mode: 0x");
+  Serial.println(x, HEX);
   x = tft.readcommand8(ILI9341_RDMADCTL);
-  Serial.print("MADCTL Mode: 0x"); Serial.println(x, HEX);
+  Serial.print("MADCTL Mode: 0x");
+  Serial.println(x, HEX);
   x = tft.readcommand8(ILI9341_RDPIXFMT);
-  Serial.print("Pixel Format: 0x"); Serial.println(x, HEX);
+  Serial.print("Pixel Format: 0x");
+  Serial.println(x, HEX);
   x = tft.readcommand8(ILI9341_RDIMGFMT);
-  Serial.print("Image Format: 0x"); Serial.println(x, HEX);
+  Serial.print("Image Format: 0x");
+  Serial.println(x, HEX);
   x = tft.readcommand8(ILI9341_RDSELFDIAG);
-  Serial.print("Self Diagnostic: 0x"); Serial.println(x, HEX);
+  Serial.print("Self Diagnostic: 0x");
+  Serial.println(x, HEX);
 #ifdef DEBUG_PIN
   pinMode(DEBUG_PIN, OUTPUT);
 #endif
@@ -107,50 +113,274 @@ void SetupOrClearClipRectAndOffsets() {
 
 uint16_t palette[256];  // Should probably be 256, but I don't use many colors...
 uint16_t pixel_data[2500];
-const uint8_t pict1bpp[] = {0xff, 0xff, 0xc0, 0x03, 0xa0, 0x05, 0x90, 0x9, 0x88, 0x11, 0x84, 0x21, 0x82, 0x41, 0x81, 0x81,
-                            0x81, 0x81, 0x82, 0x41, 0x84, 0x21, 0x88, 0x11, 0x90, 0x09, 0xa0, 0x05, 0xc0, 0x03, 0xff, 0xff
-                           };
+const uint8_t pict1bpp[] = { 0xff, 0xff, 0xc0, 0x03, 0xa0, 0x05, 0x90, 0x9, 0x88, 0x11, 0x84, 0x21, 0x82, 0x41, 0x81, 0x81,
+                             0x81, 0x81, 0x82, 0x41, 0x84, 0x21, 0x88, 0x11, 0x90, 0x09, 0xa0, 0x05, 0xc0, 0x03, 0xff, 0xff };
 const uint8_t pict2bpp[] = {
-  0x00, 0x00, 0x55, 0x55, 0xaa, 0xaa, 0xff, 0xff,
-  0x00, 0x00, 0x55, 0x55, 0xaa, 0xaa, 0xff, 0xff,
-  0x55, 0x55, 0xaa, 0xaa, 0xff, 0xff, 0x00, 0x00, 
-  0x55, 0x55, 0xaa, 0xaa, 0xff, 0xff, 0x00, 0x00, 
-  0xaa, 0xaa, 0xff, 0xff, 0x00, 0x00, 0x55, 0x55, 
-  0xaa, 0xaa, 0xff, 0xff, 0x00, 0x00, 0x55, 0x55, 
-  0xff, 0xff, 0x00, 0x00, 0x55, 0x55, 0xaa, 0xaa, 
-  0xff, 0xff, 0x00, 0x00, 0x55, 0x55, 0xaa, 0xaa, 
-  0x00, 0x00, 0x55, 0x55, 0xaa, 0xaa, 0xff, 0xff,
-  0x00, 0x00, 0x55, 0x55, 0xaa, 0xaa, 0xff, 0xff,
-  0x55, 0x55, 0xaa, 0xaa, 0xff, 0xff, 0x00, 0x00, 
-  0x55, 0x55, 0xaa, 0xaa, 0xff, 0xff, 0x00, 0x00, 
-  0xaa, 0xaa, 0xff, 0xff, 0x00, 0x00, 0x55, 0x55, 
-  0xaa, 0xaa, 0xff, 0xff, 0x00, 0x00, 0x55, 0x55, 
-  0xff, 0xff, 0x00, 0x00, 0x55, 0x55, 0xaa, 0xaa, 
-  0xff, 0xff, 0x00, 0x00, 0x55, 0x55, 0xaa, 0xaa, 
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
+  0xff,
+  0xff,
+  0x00,
+  0x00,
+  0x55,
+  0x55,
+  0xaa,
+  0xaa,
 };
-const uint8_t pict4bpp[] = {  
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x00,  
-  0x00, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x00,  
-  0x00, 0x11, 0x22, 0x22, 0x22, 0x22, 0x11, 0x00,
-  0x00, 0x11, 0x22, 0x22, 0x22, 0x22, 0x11, 0x00,
-  0x00, 0x11, 0x22, 0x33, 0x33, 0x22, 0x11, 0x00,
-  0x00, 0x11, 0x22, 0x33, 0x33, 0x22, 0x11, 0x00,
-  0x00, 0x11, 0x22, 0x33, 0x33, 0x22, 0x11, 0x00,
-  0x00, 0x11, 0x22, 0x33, 0x33, 0x22, 0x11, 0x00,
-  0x00, 0x11, 0x22, 0x22, 0x22, 0x22, 0x11, 0x00,
-  0x00, 0x11, 0x22, 0x22, 0x22, 0x22, 0x11, 0x00,
-  0x00, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x00,  
-  0x00, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x00,  
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+const uint8_t pict4bpp[] = {
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x22,
+  0x22,
+  0x22,
+  0x22,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x22,
+  0x22,
+  0x22,
+  0x22,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x22,
+  0x33,
+  0x33,
+  0x22,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x22,
+  0x33,
+  0x33,
+  0x22,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x22,
+  0x33,
+  0x33,
+  0x22,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x22,
+  0x33,
+  0x33,
+  0x22,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x22,
+  0x22,
+  0x22,
+  0x22,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x22,
+  0x22,
+  0x22,
+  0x22,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x00,
+  0x00,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x11,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
 };
 
 
-                           
+
 void drawTestScreen() {
-  printf("Use FB: %d ", use_fb); Serial.flush();
+  printf("Use FB: %d ", use_fb);
+  Serial.flush();
   tft.useFrameBuffer(use_fb);
   SetupOrClearClipRectAndOffsets();
   uint32_t start_time = millis();
@@ -186,16 +416,16 @@ void drawTestScreen() {
 
   printf("\tBefore Read Rect\n");
   tft.readRect(0, 0, 50, 50, pixel_data);
-  // For heck of it lets make sure readPixel and ReadRect 
+  // For heck of it lets make sure readPixel and ReadRect
   // give us same data, maybe check along diagnal?
-  for (uint i=0; i < 50; i++) {
-    uint16_t pixel_color = tft.readPixel(i,i);
-    if (pixel_color != pixel_data[i*50+i]) {
-        printf("Read mismatch: %u ", i);
-        print_color_info(pixel_color);
-        print_color_info(pixel_data[i*50+i]);
-        printf("\n");
-    }    
+  for (uint i = 0; i < 50; i++) {
+    uint16_t pixel_color = tft.readPixel(i, i);
+    if (pixel_color != pixel_data[i * 50 + i]) {
+      printf("Read mismatch: %u ", i);
+      print_color_info("P:", pixel_color);
+      print_color_info("R:", pixel_data[i * 50 + i]);
+      printf("\n");
+    }
   }
 
 #ifdef DEBUG_PIN
@@ -216,17 +446,24 @@ void drawTestScreen() {
   tft.readRect(125, 0, 14, 10, pixel_data);
   tft.writeRect(150, 0, 14, 10, pixel_data);
 
+  static const uint16_t expected_colors[] = { ILI9341_BLACK,
+                                              ILI9341_RED, ILI9341_RED, ILI9341_RED,
+                                              ILI9341_GREEN, ILI9341_GREEN, ILI9341_GREEN,
+                                              ILI9341_BLUE, ILI9341_BLUE, ILI9341_BLUE,
+                                              ILI9341_WHITE, ILI9341_WHITE, ILI9341_WHITE,
+                                              ILI9341_BLACK };
   for (uint16_t y = 0; y < 10; y++) {
-    for (uint16_t x = 125; x < 125+14; x++) {
+    for (uint16_t x = 125; x < 125 + 14; x++) {
       uint16_t pixel_color = tft.readPixel(x, y);
-      tft.drawPixel(x+50, y, pixel_color);
+      tft.drawPixel(x + 50, y, pixel_color);
       uint16_t array_index = (y * 14) + (x - 125);
-      if (pixel_color != pixel_data[array_index]) {
-        printf("Read mismatch: (%u, %u) %u ", x, y, array_index);
-        print_color_info(pixel_color);
-        print_color_info(pixel_data[array_index]);
+      if ((pixel_color != pixel_data[array_index]) || (pixel_color != expected_colors[x - 125])) {
+        printf("Read mismatch: (%u, %u) %u ", x - 125, y, array_index);
+        print_color_info("E:", expected_colors[x - 125]);
+        print_color_info("P:", pixel_color);
+        print_color_info("R:", pixel_data[array_index]);
         printf("\n");
-      }
+        }
     }
   }
 
@@ -239,7 +476,7 @@ void drawTestScreen() {
   printf("\treadRect\n");
   tft.readRect(85, 65, 50, 50, pixel_data);
   uint16_t *ppd16 = pixel_data;
-  uint8_t *ppd8 = (uint8_t*)pixel_data;
+  uint8_t *ppd8 = (uint8_t *)pixel_data;
   uint8_t palette_cnt = 0;
   int palette_index;
   for (int i = 0; i < 2500; i++) {
@@ -254,14 +491,14 @@ void drawTestScreen() {
     ppd16++;
   }
   printf("\twriteRect8BPP");
-  tft.writeRect8BPP(200, 50, 50, 50, (uint8_t*)pixel_data, palette);
-  palette[0] = ILI9341_CYAN; 
-  palette[1] = ILI9341_OLIVE; 
+  tft.writeRect8BPP(200, 50, 50, 50, (uint8_t *)pixel_data, palette);
+  palette[0] = ILI9341_CYAN;
+  palette[1] = ILI9341_OLIVE;
   tft.writeRect1BPP(75, 100, 16, 16, pict1bpp, palette);
   tft.writeRect1BPP(320 - 90, 75, 16, 16, pict1bpp, palette);
-  
-  palette[2] = ILI9341_MAROON; 
-  palette[3] = ILI9341_PINK; 
+
+  palette[2] = ILI9341_MAROON;
+  palette[3] = ILI9341_PINK;
   tft.writeRect2BPP(75, 125, 32, 16, pict2bpp, palette);
 
   tft.writeRectNBPP(15, 125, 32, 16, 2, pict2bpp, palette);
@@ -274,7 +511,7 @@ void drawTestScreen() {
   if (use_dma) {
     tft.updateScreenAsync();
   } else {
-  tft.updateScreen();
+    tft.updateScreen();
   }
   Serial.println(millis() - start_time, DEC);
 
@@ -283,10 +520,8 @@ void drawTestScreen() {
     //printf("DMA error status: %x\n", DMA_ES);
   }
 
-  use_fb = use_fb ? 0 : 1 ;
+  use_fb = use_fb ? 0 : 1;
   Serial.println(use_fb, DEC);
-
-
 }
 
 void fillScreenTest() {
@@ -300,14 +535,13 @@ void fillScreenTest() {
   tft.fillScreen(ILI9341_WHITE);
   WaitForUserInput();
   tft.fillScreen(ILI9341_BLACK);
-
 }
 void printTextSizes(const char *sz) {
   printf("%s(%d,%d): SPL:%u ", sz, tft.getCursorX(), tft.getCursorY(), tft.strPixelLen(sz));
   int16_t x, y;
   uint16_t w, h;
   tft.getTextBounds(sz, tft.getCursorX(), tft.getCursorY(), &x, &y, &w, &h);
-  printf(" Rect(%d, %d, %u %u)\n", x, y, w, h);  
+  printf(" Rect(%d, %d, %u %u)\n", x, y, w, h);
   tft.drawRect(x, y, w, h, ILI9341_GREEN);
 }
 
@@ -319,7 +553,7 @@ void drawTextScreen(bool fOpaque) {
   tft.useFrameBuffer(use_fb);
   tft.fillScreen(use_fb ? ILI9341_RED : ILI9341_BLACK);
   tft.setFont(Arial_28_Bold);
-//t  tft.setFont(Arial_40_Bold);
+  //t  tft.setFont(Arial_40_Bold);
   if (fOpaque)
     tft.setTextColor(ILI9341_WHITE, use_fb ? ILI9341_BLACK : ILI9341_RED);
   else
@@ -338,7 +572,7 @@ void drawTextScreen(bool fOpaque) {
 #endif
   tft.setFont(&FreeMonoBoldOblique12pt7b);
   printTextSizes("AdaFruit_MB_12");
-  if (fOpaque){
+  if (fOpaque) {
     tft.setTextColor(ILI9341_RED, ILI9341_BLUE);
     tft.print("A");
     tft.setTextColor(ILI9341_WHITE, ILI9341_GREEN);
@@ -368,18 +602,17 @@ void drawTextScreen(bool fOpaque) {
     tft.setTextColor(ILI9341_WHITE, ILI9341_GREEN);
     tft.println("2");
     tft.setTextColor(ILI9341_WHITE, use_fb ? ILI9341_BLACK : ILI9341_RED);
-  }
-  else tft.println("AdaFruit_MB_12");
+  } else tft.println("AdaFruit_MB_12");
   tft.setFont(&FreeSerif12pt7b);
   printTextSizes("FreeSan12");
   tft.println("FreeSan12");
   tft.println();
-  tft.setTextSize(1,3);
+  tft.setTextSize(1, 3);
   printTextSizes("Size 1,3");
   tft.println("Size 1,3");
   tft.setFont();
   tft.setCursor(0, 190);
-  tft.setTextSize(1,2);
+  tft.setTextSize(1, 2);
   printTextSizes("Sys(1,2)");
   tft.println("Sys(1,2)");
   tft.setTextSize(1);
@@ -425,9 +658,10 @@ void drawGFXTextScreen(bool fOpaque) {
 void WaitForUserInput() {
   Serial.println("Hit Enter to continue");
   Serial.flush();
-  while (Serial.read() == -1) ;
-  while (Serial.read() != -1) ;
-
+  while (Serial.read() == -1)
+    ;
+  while (Serial.read() != -1)
+    ;
 }
 
 //=============================================================================
@@ -445,12 +679,13 @@ void WaitForFrame(bool fCont, uint32_t wait_frame_count) {
 void testDMAContUpdate(bool fCont) {
   // Force frame buffer on
 
-  printf("continuous DMA udpate test - Frame mode on\n"); Serial.flush();
+  printf("continuous DMA udpate test - Frame mode on\n");
+  Serial.flush();
   if (!fCont) {
     Serial.println("Step Mode");
     Serial.flush();
   }
-  use_fb = 1; //
+  use_fb = 1;  //
 
   tft.useFrameBuffer(use_fb);
   tft.fillScreen(ILI9341_GREEN);
@@ -459,8 +694,7 @@ void testDMAContUpdate(bool fCont) {
   if (use_fb) {
     uint16_t *pw = tft.getFrameBuffer();
     int error_count = 0;
-    for (int i = 0; i < (ILI9341_TFTWIDTH * ILI9341_TFTHEIGHT); i++)
-    {
+    for (int i = 0; i < (ILI9341_TFTWIDTH * ILI9341_TFTHEIGHT); i++) {
       if (*pw != ILI9341_GREEN) {
         printf("tft.fillScreen(ILI9341_GREEN) not green? %d != %x\n", i, *pw);
         error_count++;
@@ -524,7 +758,6 @@ void testDMAContUpdate(bool fCont) {
   delay(2000);
   Serial.println("Do normal update to see if data is there");
   tft.updateScreen();
-
 }
 
 void loop(void) {
@@ -569,18 +802,16 @@ void loop(void) {
     else if (ich == 'r') {
       testDMAContUpdate(true);
       Serial.println("Returned from testDMAContUpdate");
-    }
-    else if (ich == 'a') {
+    } else if (ich == 'a') {
       testDMAContUpdate(false);
       Serial.println("Returned from testDMAContUpdate");
-    }
-    else
+    } else
       drawTestScreen();
   }
 }
 
-void print_color_info(uint16_t color565) {
+void print_color_info(const char *title, uint16_t color565) {
   uint8_t r, g, b;
   tft.color565toRGB(color565, r, g, b);
-  printf("%x(%x,%x,%x) ", color565, r, g, b);
+  printf(" %s %x(%x,%x,%x)", title, color565, r, g, b);
 }
