@@ -11,10 +11,15 @@
 
 #define ROTATION 3
 
+#define TFT_SPEED 20000000
+#define TFT_SPEED_READ 1000000
+
 #include "SPI.h"
 #define TFT_DC 9
 #define TFT_RST 8
 #define TFT_CS 10
+
+#define DEBUG_PIN 3
 
 #define USE_FRAME_BUFFER 1
 
@@ -38,13 +43,18 @@ void setup() {
   Serial.begin(115200);
   //printf("Begin: CS:%d, DC:%d, MOSI:%d, MISO: %d, SCK: %d, RST: %d\n", TFT_CS, TFT_DC, TFT_MOSI, TFT_MISO, TFT_SCK, TFT_RST);
 
-  tft.begin();
+  printf(">>>>> Before tft.begin  <<<<<\n");
+  tft.begin(TFT_SPEED, TFT_SPEED_READ);
   tft.setFrameBuffer(tft_frame_buffer);
 
+  printf(">>>>> Before set rotation.begin  <<<<<\n");
   tft.setRotation(ROTATION);
+  printf(">>>>> After set rotation.begin  <<<<<\n");
   tft.fillScreen(ILI9341_BLACK);
+  printf(">>>>> After fill screen  <<<<<\n");
 
   // read diagnostics (optional but can help debug problems)
+  printf(">>>>> Before read command8s  <<<<<\n");
   uint8_t x = tft.readcommand8(ILI9341_RDMODE);
   Serial.print("Display Power Mode: 0x"); Serial.println(x, HEX);
   x = tft.readcommand8(ILI9341_RDMADCTL);
@@ -59,8 +69,10 @@ void setup() {
   pinMode(DEBUG_PIN, OUTPUT);
 #endif
 
+  printf(">>>>> Before Init button  <<<<<\n");
   button.initButton(&tft, 200, 125, 100, 40, ILI9341_GREEN, ILI9341_YELLOW, ILI9341_RED, "UP", 1, 1);
 
+  printf(">>>>> Before draw test screen  <<<<<\n");
   drawTestScreen();
 }
 
@@ -144,6 +156,7 @@ void drawTestScreen() {
   uint32_t start_time = millis();
   tft.fillScreen(use_fb ? ILI9341_RED : ILI9341_BLACK);
   //tft.setFont(Inconsolata_60);
+  printf("\tText Outputs\n");
   tft.setFont(Arial_24_Bold);
   tft.setTextColor(ILI9341_WHITE);
   tft.setCursor(0, 0);
@@ -159,8 +172,11 @@ void drawTestScreen() {
   tft.setTextColor(ILI9341_WHITE, ILI9341_GREEN);
   tft.println("56789!@#$%");
 
+  printf("\tdrawRect\n");
   tft.drawRect(0, 150, 100, 50, ILI9341_WHITE);
+  printf("\tdrawLine\n");
   tft.drawLine(0, 150, 100, 50, ILI9341_GREEN);
+  printf("\tfillRect V and H\n");
   tft.fillRectVGradient(125, 150, 50, 50, ILI9341_GREEN, ILI9341_YELLOW);
   tft.fillRectHGradient(200, 150, 50, 50, ILI9341_YELLOW, ILI9341_GREEN);
   // Try a read rect and write rect
@@ -168,22 +184,59 @@ void drawTestScreen() {
   digitalWrite(DEBUG_PIN, HIGH);
 #endif
 
+  printf("\tBefore Read Rect\n");
   tft.readRect(0, 0, 50, 50, pixel_data);
   // For heck of it lets make sure readPixel and ReadRect 
   // give us same data, maybe check along diagnal?
   for (uint i=0; i < 50; i++) {
     uint16_t pixel_color = tft.readPixel(i,i);
     if (pixel_color != pixel_data[i*50+i]) {
-      printf("Read rect/pixel mismatch: %d %x %x\n", i, pixel_color,pixel_data[i*50+i]);
+        printf("Read mismatch: %u ", i);
+        print_color_info(pixel_color);
+        print_color_info(pixel_data[i*50+i]);
+        printf("\n");
     }    
   }
 
 #ifdef DEBUG_PIN
   digitalWrite(DEBUG_PIN, LOW);
 #endif
+  printf("\twriteRect\n");
   tft.writeRect(250, 0, 50, 50, pixel_data);
 
+  printf("Read Rect/pixel 2nd try");
+  tft.drawRect(125, 0, 14, 10, ILI9341_BLACK);
+  tft.fillRect(126, 1, 3, 8, ILI9341_RED);
+  tft.fillRect(129, 1, 3, 8, ILI9341_GREEN);
+  tft.fillRect(132, 1, 3, 8, ILI9341_BLUE);
+  tft.fillRect(135, 1, 3, 8, ILI9341_WHITE);
+#ifdef DEBUG_PIN
+  digitalWrite(DEBUG_PIN, HIGH);
+#endif
+  tft.readRect(125, 0, 14, 10, pixel_data);
+  tft.writeRect(150, 0, 14, 10, pixel_data);
+
+  for (uint16_t y = 0; y < 10; y++) {
+    for (uint16_t x = 125; x < 125+14; x++) {
+      uint16_t pixel_color = tft.readPixel(x, y);
+      tft.drawPixel(x+50, y, pixel_color);
+      uint16_t array_index = (y * 14) + (x - 125);
+      if (pixel_color != pixel_data[array_index]) {
+        printf("Read mismatch: (%u, %u) %u ", x, y, array_index);
+        print_color_info(pixel_color);
+        print_color_info(pixel_data[array_index]);
+        printf("\n");
+      }
+    }
+  }
+
+
+#ifdef DEBUG_PIN
+  digitalWrite(DEBUG_PIN, LOW);
+#endif
+
   // Lets try to pack this rectangle of data into 8 byte
+  printf("\treadRect\n");
   tft.readRect(85, 65, 50, 50, pixel_data);
   uint16_t *ppd16 = pixel_data;
   uint8_t *ppd8 = (uint8_t*)pixel_data;
@@ -200,6 +253,7 @@ void drawTestScreen() {
     *ppd8++ = palette_index;
     ppd16++;
   }
+  printf("\twriteRect8BPP");
   tft.writeRect8BPP(200, 50, 50, 50, (uint8_t*)pixel_data, palette);
   palette[0] = ILI9341_CYAN; 
   palette[1] = ILI9341_OLIVE; 
@@ -335,7 +389,7 @@ void drawTextScreen(bool fOpaque) {
 
 
   tft.updateScreen();
-  printf("Use FB: %d OP: %d, DT: %d OR: %d\n", use_fb, fOpaque, use_set_origin, millis() - start_time);
+  printf("Use FB: %d OP: %d, DT: %d OR: %ld\n", use_fb, fOpaque, use_set_origin, millis() - start_time);
 }
 
 
@@ -363,7 +417,7 @@ void drawGFXTextScreen(bool fOpaque) {
   tft.updateScreen();
   tft.setTextSize(1);
   tft.setFont();
-  printf("Use FB: %d OP: %d, DT: %d\n", use_fb, fOpaque, millis() - start_time);
+  printf("Use FB: %d OP: %d, DT: %ld\n", use_fb, fOpaque, millis() - start_time);
 }
 //=============================================================================
 // Wait for user input
@@ -523,5 +577,10 @@ void loop(void) {
     else
       drawTestScreen();
   }
+}
 
+void print_color_info(uint16_t color565) {
+  uint8_t r, g, b;
+  tft.color565toRGB(color565, r, g, b);
+  printf("%x(%x,%x,%x) ", color565, r, g, b);
 }

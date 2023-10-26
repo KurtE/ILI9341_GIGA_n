@@ -227,7 +227,7 @@ typedef struct {
 // At all other speeds, _pspi->beginTransaction() will use the fastest available
 // clock
 #define ILI9341_SPICLOCK 30000000
-#define ILI9341_SPICLOCK_READ 2000000
+#define ILI9341_SPICLOCK_READ 1000000
 
 class ILI9341_GIGA_n : public Print {
 public:
@@ -517,13 +517,10 @@ public:
 
 protected:
   SPIClass *_pspi = nullptr;
-//  SPIClass::SPI_Hardware_t *_spi_hardware;
 
   uint8_t _spi_num;         // Which buss is this spi on?
   uint32_t _SPI_CLOCK;      // #define ILI9341_SPICLOCK 30000000
   uint32_t _SPI_CLOCK_READ; //#define ILI9341_SPICLOCK_READ 2000000
-
-  //KINETISL_SPI_t *_pkinetisl_spi;
 
   int16_t _width, _height; // Display w/h as modified by current rotation
   int16_t cursor_x, cursor_y;
@@ -602,6 +599,9 @@ protected:
   uint16_t _dcpinmask;
   __IO uint32_t *_csBSRR; 
   uint16_t _cspinmask;
+
+//  volatile uint8_t _data_sent_not_completed = 0;  // how much data has been sent that we are waiting for info
+  volatile bool  _data_sent_since_last_transmit_complete = 0;  // have we sent anything since
 
 
 #ifdef ENABLE_ILI9341_FRAMEBUFFER
@@ -682,10 +682,13 @@ protected:
 
     uint32_t cfg2 = _pgigaSpi->CFG2; 
     cfg2 &= ~SPI_CFG2_MIDI_Msk;
-    cfg2 |= (1 << SPI_CFG2_MIDI_Pos);
+
+    if (clock == _SPI_CLOCK_READ) cfg2 |= (4 << SPI_CFG2_MIDI_Pos);  // give more gap
+    else cfg2 |= (1 << SPI_CFG2_MIDI_Pos);
+
     _pgigaSpi->CFG2 = cfg2;
     _pgigaSpi->CR1 |= (cr1 &SPI_CR1_SPE_Msk);
-
+//    _data_sent_not_completed = 0; // start at 0 each time
 
   }
   void endSPITransaction() __attribute__((always_inline)) {
@@ -696,41 +699,115 @@ protected:
 
   // Start off stupid
   uint8_t _dcpinAsserted;
-  void waitTransmitComplete() {
+
+  void waitTransmitComplete(uint8_t called_from = 0) {
     // so far nothing
-    uint32_t to = 1000;
+    uint32_t start_time_us;
     uint32_t sr;
-    while((((sr = _pgigaSpi->SR) & SPI_SR_TXC) == 0) && (--to)) {
+    static uint32_t wtcCallCount = 0;
+
+#if 0
+    while((_data_sent_not_completed != 0) && (--to)) {
+      sr = _pgigaSpi->SR;
+      if (sr & SPI_SR_OVR) {
+        // have overflow, clear it
+        _pgigaSpi->IFCR = SPI_IFCR_OVRC;
+      }
+      if (sr & SPI_SR_RXP ) {
+        uint8_t unused __attribute__((unused));
+        uint8_t rxplvlBefore = (sr >> SPI_SR_RXPLVL_Pos) & 0x3;
+
+        unused = *((__IO uint8_t *)&_pgigaSpi->RXDR);
+        uint8_t rxplvlAfter = ( _pgigaSpi->SR >> SPI_SR_RXPLVL_Pos) & 0x3;
+        static uint8_t trace_count = 64;
+        _data_sent_not_completed--;
+        if (trace_count) {
+          trace_count--;
+          Serial.write(rxplvlBefore + '0');
+          Serial.write(rxplvlAfter + '0');
+          Serial.println();
+        }
+      }
+    }
+#else    
+//    while((((sr = _pgigaSpi->SR) & SPI_SR_TXC) == 0) && (--to)) {
+    wtcCallCount++; // increment the count of how many times we were called.
+//    static uint8_t trace_count = 64;
+    uint32_t sr_prev = _pgigaSpi->SR;
+//    if (trace_count) {
+//      Serial.print(wtcCallCount, DEC);
+//      Serial.print(" ");
+//      Serial.print(sr_prev, HEX);
+//      Serial.print(":");
+//      Serial.print(_data_sent_not_completed, DEC);
+//    }
+
+    // lets try with either TXC or EOT...
+    start_time_us = micros();
+    static const uint32_t TIMEOUT_US = 250;
+    uint32_t delta_time = 0;
+    while((delta_time = (micros() - start_time_us)) < TIMEOUT_US) {
+      sr = _pgigaSpi->SR;
+//      if (trace_count) {
+//        if (sr != sr_prev) {
+//          Serial.print("->");
+//          sr_prev = sr;
+//          Serial.print(sr_prev, HEX);
+//          Serial.print(":");
+//          Serial.print(_data_sent_not_completed, DEC);
+//          start_time = micros();  // keep the printing from screwing up timing
+//        }
+//      }
+
+      if (sr & SPI_SR_OVR) {
+        // have overflow, clear it
+        _pgigaSpi->IFCR = SPI_IFCR_OVRC;
+        // printf("@@@@@@@@@@ OVERFLOW @@@@@@@@@@\n");
+      }
+
       if (sr & SPI_SR_RXP ) {
         uint8_t unused __attribute__((unused));
         unused = *((__IO uint8_t *)&_pgigaSpi->RXDR);
+        //if (_data_sent_not_completed) _data_sent_not_completed--;
+        continue; // go check for more
       }
+
+      // If nothing has been sent, we can get out of here now.
+      if (!_data_sent_since_last_transmit_complete) {
+        break;
+      }
+
+      // Now check for end of transmission.
+      if ((sr & (SPI_SR_EOT | SPI_SR_TXC)) != 0) {
+        break;
+      }
+
     }
-    if (to == 0) {
+//    if (trace_count) {
+//      Serial.print("$");
+//      Serial.println(_data_sent_not_completed, DEC);
+//      trace_count--;
+//    }
+
+#endif
+    if (delta_time >= TIMEOUT_US) {
       Serial.print("**TO** WTC:  ");
+      Serial.print(wtcCallCount, DEC);
+      Serial.print(" ");
+      Serial.print(called_from, DEC);
+      Serial.print(" ");
+      Serial.print(sr_prev, HEX);
+      Serial.print(" ");
       Serial.println(sr, HEX);
+//      Serial.print(" ");
+//      Serial.println(_data_sent_not_completed, DEC);
     }
-  }
-  uint16_t waitTransmitCompleteReturnLast() {
-    #if 0
-    uint16_t d = 0;
-    while (_data_sent_not_completed) {
-      uint16_t timeout_count = 0xff; // hopefully enough
-      while (!(_pkinetisl_spi->S & SPI_S_SPRF) && timeout_count--)
-        ; // wait
-      d = (_pkinetisl_spi->DH << 8) | _pkinetisl_spi->DL;
-      _data_sent_not_completed--; // We hopefully received our data...
-    }
-    return d;
-    #else
-    waitTransmitComplete();
-    return 0xffff;
-    #endif
+    _data_sent_since_last_transmit_complete = false;
   }
 
   void setCommandMode() __attribute__((always_inline)) {
     if (!_dcpinAsserted) {
-      waitTransmitComplete();
+      waitTransmitComplete(1);
       *_dcBSRR = (uint32_t)(_dcpinmask << 16);  // reset
       //digitalWrite(_dc, LOW);
       _dcpinAsserted = 1;
@@ -739,7 +816,7 @@ protected:
 
   void setDataMode() __attribute__((always_inline)) {
     if (_dcpinAsserted) {
-      waitTransmitComplete();
+      waitTransmitComplete(2);
       *_dcBSRR = (uint32_t)(_dcpinmask);  // set
       //digitalWrite(_dc, HIGH);
       _dcpinAsserted = 0;
@@ -748,16 +825,67 @@ protected:
 
   void outputToSPI(uint8_t c) {
     //_pspi->transfer(c);
+#if 1
     uint32_t sr;
-    uint32_t to = 1000;
     uint8_t unused __attribute__((unused));
     _pgigaSpi->CR1 |= SPI_CR1_CSTART;
-    while((((sr = _pgigaSpi->SR) & SPI_SR_TXP) == 0) && (--to)) {
+
+    // first read any pending data
+    uint32_t to = 1000;
+
+    while (!((sr = _pgigaSpi->SR) & SPI_SR_TXP) && (--to)) { }
+
+    if (to) {
+      *((__IO uint8_t *)&_pgigaSpi->TXDR) = c;
+//      _data_sent_not_completed++;
+      _data_sent_since_last_transmit_complete = true;
+    } else {
+      Serial.println("**TO** Write:  ");
+      Serial.print("\tCR1:  "); Serial.println(_pgigaSpi->CR1, HEX);         /*!< SPI/I2S Control register 1,                      Address offset: 0x00 */
+      Serial.print("\tCR2:  "); Serial.println(_pgigaSpi->CR2, HEX);         /*!< SPI Control register 2,                          Address offset: 0x04 */
+      Serial.print("\tCFG1:  "); Serial.println(_pgigaSpi->CFG1, HEX);       /*!< SPI Configuration register 1,                    Address offset: 0x08 */
+      Serial.print("\tCFG2:  "); Serial.println(_pgigaSpi->CFG2, HEX);       /*!< SPI Configuration register 2,                    Address offset: 0x0C */
+      Serial.print("\tIER:  "); Serial.println(_pgigaSpi->IER, HEX);         /*!< SPI/I2S Interrupt Enable register,               Address offset: 0x10 */
+      Serial.print("\tSR:  "); Serial.println(_pgigaSpi->SR, HEX);           /*!< SPI/I2S Status register,                         Address offset: 0x14 */
+      delay(1000);
+    }
+
+    if (sr & SPI_SR_RXP ) {
+      unused = *((__IO uint8_t *)&_pgigaSpi->RXDR);
+//      if (_data_sent_not_completed) _data_sent_not_completed--;
+    }
+
+#else    
+    uint32_t sr;
+    uint8_t unused __attribute__((unused));
+    _pgigaSpi->CR1 |= SPI_CR1_CSTART;
+
+    // first read any pending data
+    uint32_t start_time_us = micros();
+    static const uint32_t TIMEOUT_US = 125;
+    uint32_t delta_time = 0;
+    while((delta_time = (micros() - start_time_us)) < TIMEOUT_US) {
+      sr = _pgigaSpi->SR;
+
+      // Check to see if there is any data in the RX FIFO
+      if (sr & SPI_SR_OVR) {
+        // have overflow, clear it
+        _pgigaSpi->IFCR = SPI_IFCR_OVRC;
+        // printf("@@@@@@@@@@ OVERFLOW @@@@@@@@@@\n");
+      }
+
       if (sr & SPI_SR_RXP ) {
         unused = *((__IO uint8_t *)&_pgigaSpi->RXDR);
+        if (_data_sent_not_completed) _data_sent_not_completed--;
+        continue;
       }
+
+      // See if there is room in the FIFO
+      if (sr & SPI_SR_TXP ) break;
+
     }
-    if (to == 0) {
+
+    if (delta_time >=  TIMEOUT_US) {
       Serial.println("**TO** Write:  ");
       Serial.print("\tCR1:  "); Serial.println(_pgigaSpi->CR1, HEX);         /*!< SPI/I2S Control register 1,                      Address offset: 0x00 */
       Serial.print("\tCR2:  "); Serial.println(_pgigaSpi->CR2, HEX);         /*!< SPI Control register 2,                          Address offset: 0x04 */
@@ -768,7 +896,10 @@ protected:
       delay(1000);
     } else {
       *((__IO uint8_t *)&_pgigaSpi->TXDR) = c;
+      _data_sent_not_completed++;
+      _data_sent_since_last_transmit_complete = true;
     }
+#endif    
   }
 
   void outputToSPI16(uint16_t data) {
@@ -794,17 +925,17 @@ protected:
   void writecommand_last(uint8_t c) {
     setCommandMode();
     outputToSPI(c);
-    waitTransmitComplete();
+    waitTransmitComplete(3);
   }
   void writedata8_last(uint8_t c) {
     setDataMode();
     outputToSPI(c);
-    waitTransmitComplete();
+    waitTransmitComplete(4);
   }
   void writedata16_last(uint16_t c) {
     setDataMode();
     outputToSPI16(c);
-    waitTransmitComplete();
+    waitTransmitComplete(5);
   }
 //////////////////////////////////////////////////////////////////
 
@@ -957,9 +1088,11 @@ protected:
       return;
     }
 #endif
+    // printf("\tPixel(%d, %d, %x)\n", x, y, color);
     setAddr(x, y, x, y);
     writecommand_cont(ILI9341_RAMWR);
     writedata16_cont(color);
+    // printf("\tPixel-End\n");
   }
   void drawFontBits(bool opaque, uint32_t bits, uint32_t numbits, int32_t x,
                     int32_t y, uint32_t repeat);

@@ -55,6 +55,7 @@
 #include <SPI.h>
 #include <api/itoa.h>
 #include "pinDefinitions.h"
+#include <LibPrintf.h>
 
 //#define DEBUG_ASYNC_UPDATE  // Enable to print out dma info
 //#define DEBUG_ASYNC_LEDS	// Enable to use digitalWrites to Debug
@@ -183,6 +184,7 @@ void ILI9341_GIGA_n::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
 void ILI9341_GIGA_n::drawFastVLine(int16_t x, int16_t y, int16_t h,
                                 uint16_t color) {
+  //printf("\tdrawFastHLine(%d, %d, %d, %x)\n", x, y, h, color);
   x += _originx;
   y += _originy;
   // Rectangular clipping
@@ -218,10 +220,12 @@ void ILI9341_GIGA_n::drawFastVLine(int16_t x, int16_t y, int16_t h,
     writedata16_last(color);
     endSPITransaction();
   }
+  //printf("\tDFVL end\n");
 }
 
 void ILI9341_GIGA_n::drawFastHLine(int16_t x, int16_t y, int16_t w,
                                 uint16_t color) {
+//  printf("\tdrawFastHLine(%d, %d, %d, %x)\n", x, y, w, color);
   x += _originx;
   y += _originy;
 
@@ -267,6 +271,7 @@ void ILI9341_GIGA_n::drawFastHLine(int16_t x, int16_t y, int16_t w,
     writedata16_last(color);
     endSPITransaction();
   }
+//  printf("\tDFHL end\n");
 }
 
 void ILI9341_GIGA_n::fillScreen(uint16_t color) {
@@ -327,6 +332,7 @@ void ILI9341_GIGA_n::fillScreen(uint16_t color) {
 // fill a rectangle
 void ILI9341_GIGA_n::fillRect(int16_t x, int16_t y, int16_t w, int16_t h,
                            uint16_t color) {
+  // printf("\tfillRect(%d, %d, %d, %d, %x)\n", x, y, w, h, color);
   x += _originx;
   y += _originy;
 
@@ -389,7 +395,7 @@ void ILI9341_GIGA_n::fillRect(int16_t x, int16_t y, int16_t w, int16_t h,
       for (x = w; x > 1; x--) {
         writedata16_cont(color);
       }
-      writedata16_last(color);
+      writedata16_cont(color);  // was last
 #if 0
 			if (y > 1 && (y & 1)) {
 				endSPITransaction();
@@ -397,8 +403,10 @@ void ILI9341_GIGA_n::fillRect(int16_t x, int16_t y, int16_t w, int16_t h,
 			}
 #endif
     }
+    waitTransmitComplete(6);
     endSPITransaction();
   }
+  // printf("\tfillRect - end\n");
 }
 
 // fillRectVGradient	- fills area with vertical gradient
@@ -850,6 +858,8 @@ void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
   y += _originy;
 // BUGBUG:: Should add some validation of X and Y
 
+
+  // printf("readRect(%d, %d, %u, %u, %p): %u\n", x, y, w, h, pcolors, _use_fbtft);
 #ifdef ENABLE_ILI9341_FRAMEBUFFER
   if (_use_fbtft) {
     uint16_t *pfbPixel_row = &_pfbtft[y * _width + x];
@@ -870,7 +880,7 @@ void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
   uint8_t rgb[3]; // RGB bytes received from the display
   uint8_t rgbIdx = 0;
   uint32_t txCount =
-      w * h * 3; // number of bytes we will transmit to the display
+      w * h * 3 + 1; // number of bytes we will transmit to the display
   uint32_t rxCount =
       txCount; // number of bytes we will receive back from the display
 
@@ -879,23 +889,30 @@ void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
   setAddr(x, y, x + w - 1, y + h - 1);
   writecommand_cont(ILI9341_RAMRD); // read from RAM
 
-  // transmit a DUMMY byte before the color bytes
-  writedata8_last(0); // BUGBUG:: maybe fix this as this will wait until the
-                      // byte fully transfers through.
-
+  uint8_t push_byte = READ_PIXEL_PUSH_BYTE;
+  writedata8_last(0); // lets output and wait for it to complete.
+//  setDataMode(); 
+//  printf("\tenter: %08lx\n", _pgigaSpi->SR);
+  // Count was updated to include first dummy byte.
+  int cnt_dummy_bytes = 0;
   while (txCount || rxCount) {
     // transmit another byte if possible
     if (txCount && (_pgigaSpi->SR & SPI_SR_TXP)) {
       txCount--;
-      *((__IO uint8_t *)&_pgigaSpi->TXDR) = 0;
+      *((__IO uint8_t *)&_pgigaSpi->TXDR) = push_byte;
+      push_byte = READ_PIXEL_PUSH_BYTE;  //????? 
+      //_data_sent_not_completed++; // increment for each one we add in
     }
 
     // receive another byte if possible, and either skip it or store the color
     if (rxCount && (_pgigaSpi->SR & SPI_SR_RXP)) {
       rgb[rgbIdx] = *((__IO uint8_t *)&_pgigaSpi->RXDR);
 
+      //if (_data_sent_not_completed) _data_sent_not_completed--; // decrement for each one we pull out.
+
       rxCount--;
-      rgbIdx++;
+      if (cnt_dummy_bytes) cnt_dummy_bytes--; // so far I think we have just one to ignore
+      else rgbIdx++;  // not dummy so increment to next index...
       if (rgbIdx == 3) {
         rgbIdx = 0;
         *pcolors++ = color565(rgb[0], rgb[1], rgb[2]);
@@ -904,6 +921,7 @@ void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
   }
 
   // We should have received everything so should be done
+  // printf("\texit: %08lx %u\n", _pgigaSpi->SR, _data_sent_not_completed);
   endSPITransaction();
 }
 
@@ -2363,7 +2381,7 @@ void ILI9341_GIGA_n::drawFontChar(unsigned int c) {
   uint32_t bitoffset;
   const uint8_t *data;
 
-  // Serial.printf("drawFontChar(%c) %d\n", c, c);
+  // printf("drawFontChar(%c) %d\n", c, c);
 
   if (c >= font->index1_first && c <= font->index1_last) {
     bitoffset = c - font->index1_first;
