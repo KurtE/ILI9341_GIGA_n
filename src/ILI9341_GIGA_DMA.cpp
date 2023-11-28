@@ -61,6 +61,7 @@ bool ILI9341_GIGA_n::updateScreenAsync(bool update_cont) {
 	SET_BIT(_pgigaSpi->CR1, SPI_CR1_CSTART);  // enable SPI
 
 	_dma_state |= ILI9341_DMA_ACTIVE;
+	dumpDMASettings();
 
 	return true;
 }
@@ -143,6 +144,7 @@ void ILI9341_GIGA_n::initDMASettings(void) {
 
 	/******************Periph request**********************/
 	// Point to our SPI
+	_dmaActiveDisplay[_spi_num] = this;
 	_dmamux->CCR = (_dmamux->CCR & ~(DMAMUX_CxCR_DMAREQ_ID_Msk))
 	               | (s_spi_hardware_mapping[_spi_num].tx_dmamux1_req_id << DMAMUX_CxCR_DMAREQ_ID_Pos);
 
