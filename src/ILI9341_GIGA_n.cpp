@@ -57,14 +57,6 @@
 #include "pinDefinitions.h"
 #include <LibPrintf.h>
 
-//#define DEBUG_ASYNC_UPDATE  // Enable to print out dma info
-//#define DEBUG_ASYNC_LEDS	// Enable to use digitalWrites to Debug
-#ifdef DEBUG_ASYNC_LEDS
-#define DEBUG_PIN_1 2
-#define DEBUG_PIN_2 3
-#define DEBUG_PIN_3 4
-#define DEBUG_PIN_4 5
-#endif
 
 #define WIDTH ILI9341_TFTWIDTH
 #define HEIGHT ILI9341_TFTHEIGHT

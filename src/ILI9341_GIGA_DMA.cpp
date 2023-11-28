@@ -7,9 +7,24 @@
 #include <api/itoa.h>
 #include "pinDefinitions.h"
 #include <LibPrintf.h>
-#include <GIGA_digitalWriteFast.h>
 
 //#define DEBUG_ASYNC_UPDATE  // Enable to print out dma info
+
+#ifdef DEBUG_ASYNC_UPDATE 
+#include <GIGA_digitalWriteFast.h>
+	#define DBGdigitalWriteFast digitalWriteFast
+	#define DBGdigitalToggleFast digitalToggleFast
+#else
+	static inline void DBGdigitalWriteFast(pin_size_t pin, PinStatus val) __attribute__((always_inline, unused));
+	static inline void DBGdigitalWriteFast(pin_size_t pin, PinStatus val) {}
+	static inline void DBGdigitalWriteFast(PinName pin_name, PinStatus val) __attribute__((always_inline, unused));
+	static inline void DBGdigitalWriteFast(PinName pin_name, PinStatus val) {}
+	static inline void DBGdigitalToggleFast(pin_size_t pin) __attribute__((always_inline, unused));
+	static inline void DBGdigitalToggleFast(pin_size_t pin) {}
+	static inline void DBGdigitalToggleFast(PinName pin_name) __attribute__((always_inline, unused));
+	static inline void DBGdigitalToggleFast(PinName pin_name) {}
+#endif
+
 //#define DEBUG_ASYNC_LEDS	// Enable to use digitalWrites to Debug
 
 #define WIDTH ILI9341_TFTWIDTH
@@ -63,8 +78,9 @@ bool ILI9341_GIGA_n::updateScreenAsync(bool update_cont) {
 	SET_BIT(_pgigaSpi->CR1, SPI_CR1_CSTART);  // enable SPI
 
 	_dma_state |= ILI9341_DMA_ACTIVE;
+#ifdef DEBUG_ASYNC_UPDATE 
 	dumpDMASettings();
-
+#endif
 	return true;
 }
 
@@ -118,7 +134,7 @@ void ILI9341_GIGA_n::initDMASettings(void) {
 
 	// Enable DMA1
 	SET_BIT(RCC->AHB1ENR, denable);
-	delay(1000);
+	delay(50);
 
 	_dmaStream->M0AR = (uint32_t)_pfbtft;
 	_dmaStream->PAR = (uint32_t)&_pgigaSpi->TXDR;
@@ -199,7 +215,7 @@ void ILI9341_GIGA_n::dmaInterrupt1(void) {
 }
 void ILI9341_GIGA_n::process_dma_interrupt(void) {
 	txIRQCount++;
-	digitalToggleFast(LED_BLUE);
+	DBGdigitalToggleFast(LED_BLUE);
 	if (DMA1->LISR & DMA_LISR_TCIF1) {
 		DMA1->LIFCR = DMA_LIFCR_CTCIF1;
 		if (_dma_sub_frame_count == 0) {
@@ -236,11 +252,11 @@ void ILI9341_GIGA_n::process_dma_interrupt(void) {
 		}
 	}
 	if (DMA1->LISR & DMA_LISR_TEIF1) {
-		digitalToggleFast(LED_RED);
+		DBGdigitalToggleFast(LED_RED);
 		DMA1->LIFCR = DMA_LIFCR_CTEIF1;
 	}
 	if (DMA1->LISR & DMA_LISR_FEIF1) {
-		digitalToggleFast(LED_RED);
+		DBGdigitalToggleFast(LED_RED);
 		DMA1->LIFCR = DMA_LIFCR_CFEIF1;
 	}
 }
