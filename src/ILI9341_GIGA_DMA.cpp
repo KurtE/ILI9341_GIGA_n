@@ -37,6 +37,8 @@ bool ILI9341_GIGA_n::updateScreenAsync(bool update_cont) {
 
 	initDMASettings();
 
+	SCB_CleanInvalidateDCache_by_Addr( _pfbtft, CBALLOC);
+
 	// reset the buffers.
 	_dmaStream->M0AR = (uint32_t)_pfbtft;
 	_dmaStream->NDTR = 38400;  // (32*240/2);  //0 - 65536
