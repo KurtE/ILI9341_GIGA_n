@@ -5,7 +5,8 @@ This Arduino library is for driving ILI9341 displays on an Arduino GIGA R1 board
  have played with it on a few different
 ILI9341 displays including ones from PJRC such as: https://www.pjrc.com/store/display_ili9341_touch.html and ones from Adafruit such as: https://www.adafruit.com/product/1770
 
-This is a modified version of the official PJRC ILI9341_t3 library (https://github.com/PaulStoffregen/ILI9341_t3).
+This is a port of my ILI9341_t3n library which was earlier derived from te official PJRC ILI9341_t3 library (https://github.com/PaulStoffregen/ILI9341_t3).
+
 And it is always a Work In Progress.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -19,40 +20,38 @@ SOFTWARE.
 
 This library borrows some concepts and functionality like the usage of DMA from another variant library: https://github.com/FrankBoesing/ILI9341_t3DMA
 
-This library was originally created to be able to test out SPI on the newer Teensy boards (3.5 and 3.6), which have multiple SPI busses. Later it was
-also adapted to allow this on the Teensy LC as well. 
-
-
 Constructor and begin
 ----
 This library was developed to allow you to use any of the SPI busses on a Teensy 3.x or 4.x processor. 
 It detects this by looking at which pins were specified on the constructor. 
 
 ```
-  ILI9341_t3n(uint8_t _CS, uint8_t _DC, uint8_t _RST = 255, uint8_t _MOSI = 11,
-              uint8_t _SCLK = 13, uint8_t _MISO = 12);
+  //   pspi: either  &SPI (6 pin spi connector) or &SPI1 (shield pins)
+  //   CS: Chip select pin,  DC: Data/Command pin
+  //   RST: optional reset pin
+  //   dmaStream: If using DMA which dma stream to use (DMA[12]_Stream[0-7])
+  ILI9341_GIGA_n(SPIClass *pspi, uint8_t _CS, uint8_t _DC, uint8_t _RST = 255, 
+                DMA_Stream_TypeDef * dmaStream = DMA1_Stream1);
+
+  // Constructor
+  //   CS: Chip select pin,  DC: Data/Command pin
+  //   RST: optional reset pin
+  //   MOSI, SCLK, MISO: I do nothing with these, don't think there are alternatives
+  ILI9341_GIGA_n(uint8_t CS, uint8_t DC, uint8_t RST = 255, uint8_t MOSI = 11,
+  ILI9341_GIGA_n(uint8_t _CS, uint8_t _DC, uint8_t _RST = 255, uint8_t _MOSI = 11,
 ```
 
-When the begin method is called.  The parameters passed in for MISO/MOSI/SCK are checked to see if they are valid 
-for the SPI object.  If so SPI is used.  If not and the board type has SPI1, it will check to 
-see if those pins are valid for SPI1 and if so use SPI1, if not if there is an SPI2, it will check...
+When the begin is called, if the constructor you called did not specify an SPI buss,
+unlike the teensy version, it assumes SPI object and the MISO/MOSI/SCK are ignored. 
 ```
   void begin(uint32_t spi_clock = ILI9341_SPICLOCK,
              uint32_t spi_clock_read = ILI9341_SPICLOCK_READ);
 ```
 
-In addition, On Teensy 3.x boards, this code allows the ILI9341 code to work with only 
-one hardware CS pin available, which in this case must be used for the DC pin.  
-This is very useful to support SPI1 on the T3.5 and T3.6 boards which only
-have one CS pin unless you use some form of adapter to use the SPI pins that are on the SDCARD.   
-
-On Teensy 4.x including the Sparkfun Micromod Teensy, you are free to use any digital pin for CS and DC, but you might
-get a modest speed increase if hardware CS pin is used for the DC signal. 
-
+You are free to use any digital pin for CS and DC.
 
 Frame Buffer
 ------------
-The teensy 3.6 and now 3.5 and now the T4.x have a lot more memory than previous Teensy processors, so on these boards, 
 I borrowed some ideas from the ILI9341_t3DMA library and added code to be able to use a logical Frame Buffer.  
 To enable this I added a couple of API's 
 ```c++
@@ -138,6 +137,9 @@ to try to match which display library you are using.
 Discussion regarding this optimized version:
 ==========================
 
+https://forum.arduino.cc/t/adafruit-ili9341-and-spi-library-issues-on-giga-board/1179783
+
+The Teensy version which this is ported from:
 http://forum.pjrc.com/threads/26305-Highly-optimized-ILI9341-%28320x240-TFT-color-display%29-library
 
 This version of the library supports the Adafruit displays that use the ILI9341 displays, but in
