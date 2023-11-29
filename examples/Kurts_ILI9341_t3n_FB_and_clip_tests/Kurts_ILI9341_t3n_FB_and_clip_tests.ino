@@ -717,9 +717,12 @@ void testDMAContUpdate(bool fCont) {
     printf("tft.fillScreen(ILI9341_GREEN(%x)) error count = %d\n", ILI9341_GREEN, error_count);
   }
 
-  if (fCont)
-    tft.updateScreenAsync(fCont);
-
+  if (fCont) {
+    if (!tft.updateScreenAsync(fCont)) {
+      Serial.println("Failed to enter continuous mode");
+      return;
+    }
+  }
   // Start the update
   WaitForFrame(fCont, 10);
 

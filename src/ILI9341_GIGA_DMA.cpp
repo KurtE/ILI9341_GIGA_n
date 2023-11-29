@@ -39,16 +39,20 @@ extern void dump_dma_settings(const char *sz, DMA_TypeDef *pdma);
 extern void dump_dma_stream_settings(DMA_Stream_TypeDef *dmas);
 extern void dump_dmamux(DMAMUX_Channel_TypeDef *dmuxc);
 
+//=======================================================================
+//=======================================================================
+void ILI9341_GIGA_n::setFrameCompleteCB(void (*pcb)(), bool fCallAlsoHalfDone) {
+	_frame_complete_callback = pcb;
+	_frame_callback_on_HalfDone = pcb ? fCallAlsoHalfDone : false;
+}
 
 
 //=======================================================================
 //=======================================================================
 bool ILI9341_GIGA_n::updateScreenAsync(bool update_cont) {
 	if (!_use_fbtft) return false;
-	if (update_cont) return false;
 
 	if (_dma_state & ILI9341_DMA_ACTIVE) { return false; }
-
 
 	initDMASettings();
 
@@ -76,6 +80,8 @@ bool ILI9341_GIGA_n::updateScreenAsync(bool update_cont) {
 	// finally enable SPI
 	SET_BIT(_pgigaSpi->CR1, SPI_CR1_SPE);     // enable SPI
 	SET_BIT(_pgigaSpi->CR1, SPI_CR1_CSTART);  // enable SPI
+
+	if (update_cont) _dma_state |= ILI9341_DMA_CONT;
 
 	_dma_state |= ILI9341_DMA_ACTIVE;
 #ifdef DEBUG_ASYNC_UPDATE
@@ -200,7 +206,6 @@ void ILI9341_GIGA_n::abortUpdateAsync() {
 
 
 volatile uint32_t txIRQCount = 0;
-uint32_t M0AR_at_irq[2];
 
 //=======================================================================
 // TX DMA handler
@@ -253,7 +258,11 @@ void ILI9341_GIGA_n::process_dma_interrupt(void) {
 		clearDMAInterruptStatus(DMA_LIFCR_CTCIF0);
 		if (_dma_sub_frame_count == 0) {
 			_dma_sub_frame_count = 1;
-			M0AR_at_irq[0] = (uint32_t)_dmaStream->M0AR;
+			// See if the user wants to be called on half frame complete
+			if (_frame_complete_callback && _frame_callback_on_HalfDone) {
+				(*_frame_complete_callback)();
+			}
+
 			_dmaStream->M0AR = (uint32_t)(&_pfbtft[38400]);
 			_dmaStream->NDTR = 38400;                      // (32*240/2);  //0 - 65536
 			SET_BIT(_pgigaSpi->CFG1, SPI_CFG1_RXDMAEN);  // enable SPI RX
@@ -266,22 +275,38 @@ void ILI9341_GIGA_n::process_dma_interrupt(void) {
 			// Enable TX
 			SET_BIT(_pgigaSpi->CFG1, SPI_CFG1_TXDMAEN);  // enable SPI TX
 		} else if (_dma_sub_frame_count == 1) {
-			M0AR_at_irq[1] = (uint32_t)_dmaStream->M0AR;
-			_dma_state &= ~ILI9341_DMA_ACTIVE;
-			endSPITransaction();
+			// see if the app wants a callback...
+			_dma_sub_frame_count = 0;
+			_dma_frame_count++;
+			if (_frame_complete_callback) {
+				(*_frame_complete_callback)();
+			}
 
-			CLEAR_BIT(_pgigaSpi->CR1, SPI_CR1_SPE);        // disable SPI
-			CLEAR_BIT(_pgigaSpi->CFG1, SPI_CFG1_RXDMAEN);  // disable SPI RX
-			CLEAR_BIT(_pgigaSpi->CFG1, SPI_CFG1_TXDMAEN);  // disable SPI TX
+			if (_dma_state & ILI9341_DMA_CONT) {
+				SCB_CleanInvalidateDCache_by_Addr( _pfbtft, CBALLOC);
+				// continuous mode need to cycle back to start of frame
+				_dmaStream->M0AR = (uint32_t)(_pfbtft);
+				_dmaStream->NDTR = 38400;                      // (32*240/2);  //0 - 65536
+				SET_BIT(_pgigaSpi->CFG1, SPI_CFG1_RXDMAEN);  // enable SPI RX
+				SET_BIT(_dmaStream->CR, DMA_SxCR_EN_Msk);
+				SET_BIT(_pgigaSpi->CR1, SPI_CR1_SPE);  // enable SPI
+				SET_BIT(_pgigaSpi->CFG1, SPI_CFG1_TXDMAEN);  // enable SPI TX
 
-			_pgigaSpi->CFG1 = (_pgigaSpi->CFG1 & ~(SPI_CFG1_DSIZE_Msk | SPI_CFG1_CRCSIZE_Msk))
-			                  | (7 << SPI_CFG1_DSIZE_Pos) | (7 << SPI_CFG1_CRCSIZE_Pos);
-			_pgigaSpi->CFG1 = (_pgigaSpi->CFG1 & ~(SPI_CFG1_FTHLV_Msk))
-			                  | (7 << SPI_CFG1_FTHLV_Pos);
-			SET_BIT(_pgigaSpi->CR1, SPI_CR1_SPE);  // enable SPI
+			} else {
+				// One shot or continuous after cancel
+				_dma_state &= ~ILI9341_DMA_ACTIVE;
+				endSPITransaction();
 
-		} else {
-			// ??? error
+				CLEAR_BIT(_pgigaSpi->CR1, SPI_CR1_SPE);        // disable SPI
+				CLEAR_BIT(_pgigaSpi->CFG1, SPI_CFG1_RXDMAEN);  // disable SPI RX
+				CLEAR_BIT(_pgigaSpi->CFG1, SPI_CFG1_TXDMAEN);  // disable SPI TX
+
+				_pgigaSpi->CFG1 = (_pgigaSpi->CFG1 & ~(SPI_CFG1_DSIZE_Msk | SPI_CFG1_CRCSIZE_Msk))
+				                  | (7 << SPI_CFG1_DSIZE_Pos) | (7 << SPI_CFG1_CRCSIZE_Pos);
+				_pgigaSpi->CFG1 = (_pgigaSpi->CFG1 & ~(SPI_CFG1_FTHLV_Msk))
+				                  | (7 << SPI_CFG1_FTHLV_Pos);
+				SET_BIT(_pgigaSpi->CR1, SPI_CR1_SPE);  // enable SPI
+			}
 		}
 	}
 	if (istatus & DMA_LISR_TEIF0) {
