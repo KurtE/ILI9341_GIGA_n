@@ -6,6 +6,7 @@
 #include <ILI9341_GIGA_n.h>
 #include <Fonts/FreeMonoBoldOblique12pt7b.h>
 #include <Fonts/FreeSerif12pt7b.h>
+REDIRECT_STDOUT_TO(Serial)
 
 // BUGBUG:: For now use libprintf
 
@@ -15,20 +16,27 @@
 #define TFT_SPEED_READ 1000000
 
 #include "SPI.h"
+#define USE_SPI1
+#ifdef USE_SPI1
 #define TFT_DC 9
 #define TFT_RST 8
-#define TFT_CS 10
-
+#define TFT_CS 7
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
+#else
+#define TFT_DC 24
+#define TFT_RST 26
+#define TFT_CS 22
+ILI9341_GIGA_n tft(&SPI, TFT_CS, TFT_DC, TFT_RST, DMA1_Stream3);
+#endif
 #define DEBUG_PIN 3
 
 #define USE_FRAME_BUFFER 1
 
-ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
 Adafruit_GFX_Button button;
 
 // Let's allocate the frame buffer ourself.
-uint16_t tft_frame_buffer[ILI9341_TFTWIDTH * ILI9341_TFTHEIGHT];
+uint16_t tft_frame_buffer[ILI9341_TFTWIDTH * ILI9341_TFTHEIGHT] __attribute__((aligned(16)));
 
 uint8_t use_dma = 0;
 uint8_t use_clip_rect = 0;
@@ -39,6 +47,10 @@ uint8_t use_fb = 0;
 #define ORIGIN_TEST_Y 50
 
 void setup() {
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+
   while (!Serial && (millis() < 4000))
     ;
   Serial.begin(115200);
@@ -457,9 +469,10 @@ void drawTestScreen() {
       uint16_t pixel_color = tft.readPixel(x, y);
       tft.drawPixel(x + 50, y, pixel_color);
       uint16_t array_index = (y * 14) + (x - 125);
-      if ((pixel_color != pixel_data[array_index]) || (pixel_color != expected_colors[x - 125])) {
+      uint16_t expected_color = ((y==0) || (y==9))? ILI9341_BLACK : expected_colors[x - 125];
+      if ((pixel_color != pixel_data[array_index]) || (pixel_color != expected_color)) {
         printf("Read mismatch: (%u, %u) %u ", x - 125, y, array_index);
-        print_color_info("E:", expected_colors[x - 125]);
+        print_color_info("E:",expected_color);
         print_color_info("P:", pixel_color);
         print_color_info("R:", pixel_data[array_index]);
         printf("\n");

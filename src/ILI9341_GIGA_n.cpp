@@ -57,18 +57,17 @@
 #include "pinDefinitions.h"
 #include <LibPrintf.h>
 
-//#define DEBUG_ASYNC_UPDATE  // Enable to print out dma info
-//#define DEBUG_ASYNC_LEDS	// Enable to use digitalWrites to Debug
-#ifdef DEBUG_ASYNC_LEDS
-#define DEBUG_PIN_1 2
-#define DEBUG_PIN_2 3
-#define DEBUG_PIN_3 4
-#define DEBUG_PIN_4 5
-#endif
 
 #define WIDTH ILI9341_TFTWIDTH
 #define HEIGHT ILI9341_TFTHEIGHT
 #define CBALLOC (ILI9341_TFTHEIGHT * ILI9341_TFTWIDTH * 2)
+
+
+ILI9341_GIGA_n::SPI_Hardware_info_t ILI9341_GIGA_n::s_spi_hardware_mapping[2] = {
+  {&SPI,  (SPI_TypeDef *) SPI1_BASE, &dmaInterrupt, 38, 37},
+  {&SPI1, (SPI_TypeDef *) SPI5_BASE, &dmaInterrupt1, 86, 85}
+};
+
 
 // Constructor when using hardware ILI9241_KINETISK__pspi->  Faster, but must
 // use SPI pins
@@ -109,14 +108,15 @@ ILI9341_GIGA_n::ILI9341_GIGA_n(uint8_t cs, uint8_t dc, uint8_t rst, uint8_t mosi
 // use SPI pins
 // specific to each board type (e.g. 11,13 for Uno, 51,52 for Mega, etc.)
 
-ILI9341_GIGA_n::ILI9341_GIGA_n(SPIClass *pspi, uint8_t cs, uint8_t dc, uint8_t rst) {
+ILI9341_GIGA_n::ILI9341_GIGA_n(SPIClass *pspi, uint8_t cs, uint8_t dc, uint8_t rst, DMA_Stream_TypeDef * dmaStream) {
   _pspi = pspi;
   _cs = cs;
   _dc = dc;
   _rst = rst;
+  _dmaStream = dmaStream;
+
   _width = WIDTH;
   _height = HEIGHT;
-
 
   rotation = 0;
   cursor_y = cursor_x = 0;
@@ -833,7 +833,7 @@ void ILI9341_GIGA_n::setFrameRateControl(uint8_t mode) {
 
 
 // Read Pixel at x,y and get back 16-bit packed color
-#define READ_PIXEL_PUSH_BYTE 0x3f
+#define READ_PIXEL_PUSH_BYTE 0x7F
 uint16_t ILI9341_GIGA_n::readPixel(int16_t x, int16_t y) {
 #ifdef ENABLE_ILI9341_FRAMEBUFFER
   if (_use_fbtft) {
@@ -900,7 +900,7 @@ void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
     if (txCount && (_pgigaSpi->SR & SPI_SR_TXP)) {
       txCount--;
       *((__IO uint8_t *)&_pgigaSpi->TXDR) = push_byte;
-      push_byte = READ_PIXEL_PUSH_BYTE;  //????? 
+      //push_byte = READ_PIXEL_PUSH_BYTE;  //????? 
       //_data_sent_not_completed++; // increment for each one we add in
     }
 
@@ -1456,9 +1456,19 @@ void ILI9341_GIGA_n::begin(uint32_t spi_clock, uint32_t spi_clock_read) {
 
   _pspi->begin();
 
-  if (_pspi == &SPI)_pgigaSpi = ((SPI_TypeDef *) SPI1_BASE);
-  else _pgigaSpi = ((SPI_TypeDef *) SPI5_BASE);
+  // map to hardware index.
+  for (_spi_num = 0; _spi_num < (sizeof(s_spi_hardware_mapping)/sizeof(s_spi_hardware_mapping[0])); _spi_num++)
+  {
+    if (s_spi_hardware_mapping[_spi_num].pspi == _pspi) {
+      _pgigaSpi = s_spi_hardware_mapping[_spi_num].pgigaSpi;
+      break;
+    }   
+  }
 
+  // Did not like me putting those pointers in hardware structure???
+  //if (_pspi == &SPI)_pgigaSpi = ((SPI_TypeDef *) SPI1_BASE);
+  //else _pgigaSpi = ((SPI_TypeDef *) SPI5_BASE);
+  
   // BUGBUG:: maybe better place to do this
   // But lets muck up a few registers.
   // make sure CR1 has the master start
@@ -3842,7 +3852,7 @@ int16_t ILI9341_GIGA_n::drawFloat(float floatNumber, int dp, int poX, int poY) {
 // Without font number, uses font set by setTextFont()
 int16_t ILI9341_GIGA_n::drawString(const String &string, int poX, int poY) {
   int16_t len = string.length() + 2;
-  char buffer[len];
+  char buffer[80];  // should never get this big..
   string.toCharArray(buffer, len);
   return drawString(buffer, len-2, poX, poY);
 }
@@ -3974,12 +3984,6 @@ void ILI9341_GIGA_n::resetScrollBackgroundColor(uint16_t color) {
 void ILI9341_GIGA_n::setFrameBuffer(uint16_t *frame_buffer) {
 #ifdef ENABLE_ILI9341_FRAMEBUFFER
   _pfbtft = frame_buffer;
-  /*  // Maybe you don't want the memory cleared as you may be playing games
-  wiht multiple buffers.
-  if (_pfbtft != NULL) {
-          memset(_pfbtft, 0, ILI9341_TFTHEIGHT*ILI9341_TFTWIDTH*2);
-  }
-  */
   _dma_state &= ~ILI9341_DMA_INIT; // clear that we init the dma chain as our
                                    // buffer has changed...
 
@@ -4096,22 +4100,4 @@ void ILI9341_GIGA_n::updateScreen(void) // call to say update the screen now.
   }
   clearChangedRange(); // make sure the dirty range is updated.
 #endif
-}
-
-bool ILI9341_GIGA_n::updateScreenAsync(bool update_cont) {
-  if (update_cont) return false;
-
-  updateScreen();
-  return true;
-}
-void ILI9341_GIGA_n::waitUpdateAsyncComplete(void) {
-
-}
-
-void ILI9341_GIGA_n::endUpdateAsync() {
-
-} // Turn of the continueous mode fla
-
-void ILI9341_GIGA_n::dumpDMASettings() {
-
 }

@@ -231,7 +231,8 @@ typedef struct {
 
 class ILI9341_GIGA_n : public Print {
 public:
-  ILI9341_GIGA_n(SPIClass *pspi, uint8_t _CS, uint8_t _DC, uint8_t _RST = 255);
+  ILI9341_GIGA_n(SPIClass *pspi, uint8_t _CS, uint8_t _DC, uint8_t _RST = 255, 
+                DMA_Stream_TypeDef * dmaStream = DMA1_Stream1);
   ILI9341_GIGA_n(uint8_t _CS, uint8_t _DC, uint8_t _RST = 255, uint8_t _MOSI = 11,
               uint8_t _SCLK = 13, uint8_t _MISO = 12);
   void begin(uint32_t spi_clock = ILI9341_SPICLOCK,
@@ -489,12 +490,18 @@ public:
   useFrameBuffer(boolean b);  // use the frame buffer?  First call will allocate
   void freeFrameBuffer(void); // explicit call to release the buffer
   void updateScreen(void);    // call to say update the screen now.
+
   bool updateScreenAsync(bool update_cont = false); // call to say update the
                                                     // screen optinoally turn
                                                     // into continuous mode.
   void waitUpdateAsyncComplete(void);
-  void endUpdateAsync(); // Turn of the continueous mode fla
+  void endUpdateAsync(); // Turn of the continueous mode flag
+  void abortUpdateAsync(); // Use this if there is a hang...
   void dumpDMASettings();
+  void setSPIDataSize(uint8_t datasize);
+  uint8_t getDMAInterruptStatus();
+  void clearDMAInterruptStatus(uint8_t clear_flags);
+
 #ifdef ENABLE_ILI9341_FRAMEBUFFER
   uint16_t *getFrameBuffer() { return _pfbtft; }
   uint32_t frameCount() { return _dma_frame_count; }
@@ -514,8 +521,27 @@ public:
 #endif
   }
   SPI_TypeDef *_pgigaSpi = nullptr;
+  DMA_TypeDef *_pdma = nullptr;
+  DMA_Stream_TypeDef *_dmaStream = DMA1_Stream1;
+  DMAMUX_Channel_TypeDef *_dmamux = nullptr;
+  IRQn_Type _dmaTXIrq;
+  uint8_t _dma_channel;
 
-protected:
+
+//protected:
+  // Mapping structure from which SPI, to other info on that SPI..
+
+  typedef struct {
+    SPIClass      *pspi;          // Which SPI is this (SPI, SPI1)
+    SPI_TypeDef   *pgigaSpi;      // What is the underlying hardware SPI object;
+    void (*txdmaisr)(void);        // which call back should we use for this one.
+    uint8_t       tx_dmamux1_req_id; // What is the DMAMUX Request ID for this SPI object
+    uint8_t       rx_dmamux1_req_id; // What is the DMAMUX Request ID for this SPI object
+  } SPI_Hardware_info_t;
+
+  static SPI_Hardware_info_t s_spi_hardware_mapping[2];
+
+
   SPIClass *_pspi = nullptr;
 
   uint8_t _spi_num;         // Which buss is this spi on?
@@ -614,38 +640,17 @@ protected:
   void (*_frame_complete_callback)() = nullptr;
   bool _frame_callback_on_HalfDone = false;
 
-  static ILI9341_GIGA_n *_dmaActiveDisplay; // Use pointer to this as a way to get
+  static ILI9341_GIGA_n *_dmaActiveDisplay[2]; // Use pointer to this as a way to get
                                          // back to object...
   volatile uint8_t _dma_state = 0;            // DMA status
   volatile uint32_t _dma_frame_count = 0;     // Can return a frame count...
   volatile uint16_t _dma_sub_frame_count = 0; // Can return a frame count...
-#if defined(__MK66FX1M0__)
-  // T3.6 use Scatter/gather with chain to do transfer
-  static DMASetting _dmasettings[4];
-  static DMAChannel _dmatx;
-#elif defined(__IMXRT1052__) || defined(__IMXRT1062__) // Teensy 4.x
-  // try work around DMA memory cached.  So have a couple of buffers we copy
-  // frame buffer into
-  // as to move it out of the memory that is cached...
 
-  static const uint32_t _count_pixels = ILI9341_TFTWIDTH * ILI9341_TFTHEIGHT;
-  DMASetting _dmasettings[3];
-  DMAChannel _dmatx;
-  volatile uint32_t _dma_pixel_index = 0;
-  uint16_t _dma_buffer_size; // the actual size we are using <= DMA_BUFFER_SIZE;
-  uint16_t _dma_cnt_sub_frames_per_frame;
-  uint32_t _spi_fcr_save; // save away previous FCR register value
-  static void dmaInterrupt1(void);
-  static void dmaInterrupt2(void);
-#elif defined(__MK64FX512__)
-  // T3.5 - had issues scatter/gather so do just use channels/interrupts
-  // and update and continue
-  static DMAChannel _dmatx;
-  static DMAChannel _dmarx;
-  static uint16_t _dma_count_remaining;
-  static uint16_t _dma_write_size_words;
-#endif
+  // GIGA DMA stuff - WIP
+
   static void dmaInterrupt(void);
+  static void dmaInterrupt1(void);
+
   void process_dma_interrupt(void);
 #endif
   void charBounds(char c, int16_t *x, int16_t *y, int16_t *minx, int16_t *miny,
@@ -674,9 +679,9 @@ protected:
 /////////////////////////////////////////////////////////////////
 
   void beginSPITransaction(uint32_t clock) __attribute__((always_inline)) {
-    _pspi->beginTransaction(SPISettings(clock, MSBFIRST, SPI_MODE0));
     //digitalWrite(_cs, LOW);
     *_csBSRR = (uint32_t)(_cspinmask << 16);  // reset
+    _pspi->beginTransaction(SPISettings(clock, MSBFIRST, SPI_MODE0));
     uint32_t cr1 = _pgigaSpi->CR1;
     _pgigaSpi->CR1 &= ~SPI_CR1_SPE_Msk;
 
@@ -692,9 +697,9 @@ protected:
 
   }
   void endSPITransaction() __attribute__((always_inline)) {
+    _pspi->endTransaction();
     *_csBSRR = (uint32_t)(_cspinmask);  // set
     //digitalWrite(_cs, HIGH);
-    _pspi->endTransaction();
   }
 
   // Start off stupid
@@ -703,7 +708,7 @@ protected:
   void waitTransmitComplete(uint8_t called_from = 0) {
     // so far nothing
     uint32_t start_time_us;
-    uint32_t sr;
+    uint32_t sr = 0;
     static uint32_t wtcCallCount = 0;
 
 #if 0
@@ -1177,7 +1182,7 @@ public:
   bool justPressed() { return (currstate && !laststate); }
   bool justReleased() { return (!currstate && laststate); }
 
-private:
+//private:
   ILI9341_GIGA_n *_gfx;
   int16_t _x, _y;
   uint16_t _w, _h;
