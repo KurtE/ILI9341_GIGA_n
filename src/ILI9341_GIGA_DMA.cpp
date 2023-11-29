@@ -10,19 +10,19 @@
 
 //#define DEBUG_ASYNC_UPDATE  // Enable to print out dma info
 
-#ifdef DEBUG_ASYNC_UPDATE 
+#ifdef DEBUG_ASYNC_UPDATE
 #include <GIGA_digitalWriteFast.h>
-	#define DBGdigitalWriteFast digitalWriteFast
-	#define DBGdigitalToggleFast digitalToggleFast
+#define DBGdigitalWriteFast digitalWriteFast
+#define DBGdigitalToggleFast digitalToggleFast
 #else
-	static inline void DBGdigitalWriteFast(pin_size_t pin, PinStatus val) __attribute__((always_inline, unused));
-	static inline void DBGdigitalWriteFast(pin_size_t pin, PinStatus val) {}
-	static inline void DBGdigitalWriteFast(PinName pin_name, PinStatus val) __attribute__((always_inline, unused));
-	static inline void DBGdigitalWriteFast(PinName pin_name, PinStatus val) {}
-	static inline void DBGdigitalToggleFast(pin_size_t pin) __attribute__((always_inline, unused));
-	static inline void DBGdigitalToggleFast(pin_size_t pin) {}
-	static inline void DBGdigitalToggleFast(PinName pin_name) __attribute__((always_inline, unused));
-	static inline void DBGdigitalToggleFast(PinName pin_name) {}
+static inline void DBGdigitalWriteFast(pin_size_t pin, PinStatus val) __attribute__((always_inline, unused));
+static inline void DBGdigitalWriteFast(pin_size_t pin, PinStatus val) {}
+static inline void DBGdigitalWriteFast(PinName pin_name, PinStatus val) __attribute__((always_inline, unused));
+static inline void DBGdigitalWriteFast(PinName pin_name, PinStatus val) {}
+static inline void DBGdigitalToggleFast(pin_size_t pin) __attribute__((always_inline, unused));
+static inline void DBGdigitalToggleFast(pin_size_t pin) {}
+static inline void DBGdigitalToggleFast(PinName pin_name) __attribute__((always_inline, unused));
+static inline void DBGdigitalToggleFast(PinName pin_name) {}
 #endif
 
 //#define DEBUG_ASYNC_LEDS	// Enable to use digitalWrites to Debug
@@ -78,7 +78,7 @@ bool ILI9341_GIGA_n::updateScreenAsync(bool update_cont) {
 	SET_BIT(_pgigaSpi->CR1, SPI_CR1_CSTART);  // enable SPI
 
 	_dma_state |= ILI9341_DMA_ACTIVE;
-#ifdef DEBUG_ASYNC_UPDATE 
+#ifdef DEBUG_ASYNC_UPDATE
 	dumpDMASettings();
 #endif
 	return true;
@@ -112,22 +112,22 @@ void ILI9341_GIGA_n::initDMASettings(void) {
 	uint32_t denable = 0;
 	switch ((uint32_t)_dmaStream) {
 	default: return;  // not in our list.
-	case DMA1_Stream0_BASE: _dmamux = DMAMUX1_Channel0; _dmaTXIrq = DMA1_Stream0_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
-	case DMA1_Stream1_BASE: _dmamux = DMAMUX1_Channel1; _dmaTXIrq = DMA1_Stream1_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
-	case DMA1_Stream2_BASE: _dmamux = DMAMUX1_Channel2; _dmaTXIrq = DMA1_Stream2_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
-	case DMA1_Stream3_BASE: _dmamux = DMAMUX1_Channel3; _dmaTXIrq = DMA1_Stream3_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
-	case DMA1_Stream4_BASE: _dmamux = DMAMUX1_Channel4; _dmaTXIrq = DMA1_Stream4_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
-	case DMA1_Stream5_BASE: _dmamux = DMAMUX1_Channel5; _dmaTXIrq = DMA1_Stream5_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
-	case DMA1_Stream6_BASE: _dmamux = DMAMUX1_Channel6; _dmaTXIrq = DMA1_Stream6_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
-	case DMA1_Stream7_BASE: _dmamux = DMAMUX1_Channel7; _dmaTXIrq = DMA1_Stream7_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
-	case DMA2_Stream0_BASE: _dmamux = DMAMUX2_Channel0; _dmaTXIrq = DMA2_Stream0_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
-	case DMA2_Stream1_BASE: _dmamux = DMAMUX2_Channel1; _dmaTXIrq = DMA2_Stream1_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
-	case DMA2_Stream2_BASE: _dmamux = DMAMUX2_Channel2; _dmaTXIrq = DMA2_Stream2_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
-	case DMA2_Stream3_BASE: _dmamux = DMAMUX2_Channel3; _dmaTXIrq = DMA2_Stream3_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
-	case DMA2_Stream4_BASE: _dmamux = DMAMUX2_Channel4; _dmaTXIrq = DMA2_Stream4_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
-	case DMA2_Stream5_BASE: _dmamux = DMAMUX2_Channel5; _dmaTXIrq = DMA2_Stream5_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
-	case DMA2_Stream6_BASE: _dmamux = DMAMUX2_Channel6; _dmaTXIrq = DMA2_Stream6_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
-	case DMA2_Stream7_BASE: _dmamux = DMAMUX2_Channel7; _dmaTXIrq = DMA2_Stream7_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
+	case DMA1_Stream0_BASE: _dmamux = DMAMUX1_Channel0; _pdma = DMA1; _dma_channel = 0; _dmaTXIrq = DMA1_Stream0_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
+	case DMA1_Stream1_BASE: _dmamux = DMAMUX1_Channel1; _pdma = DMA1; _dma_channel = 1; _dmaTXIrq = DMA1_Stream1_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
+	case DMA1_Stream2_BASE: _dmamux = DMAMUX1_Channel2; _pdma = DMA1; _dma_channel = 2; _dmaTXIrq = DMA1_Stream2_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
+	case DMA1_Stream3_BASE: _dmamux = DMAMUX1_Channel3; _pdma = DMA1; _dma_channel = 3; _dmaTXIrq = DMA1_Stream3_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
+	case DMA1_Stream4_BASE: _dmamux = DMAMUX1_Channel4; _pdma = DMA1; _dma_channel = 4; _dmaTXIrq = DMA1_Stream4_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
+	case DMA1_Stream5_BASE: _dmamux = DMAMUX1_Channel5; _pdma = DMA1; _dma_channel = 5; _dmaTXIrq = DMA1_Stream5_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
+	case DMA1_Stream6_BASE: _dmamux = DMAMUX1_Channel6; _pdma = DMA1; _dma_channel = 6; _dmaTXIrq = DMA1_Stream6_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
+	case DMA1_Stream7_BASE: _dmamux = DMAMUX1_Channel7; _pdma = DMA1; _dma_channel = 7; _dmaTXIrq = DMA1_Stream7_IRQn; denable = RCC_AHB1ENR_DMA1EN; break;
+	case DMA2_Stream0_BASE: _dmamux = DMAMUX2_Channel0; _pdma = DMA2; _dma_channel = 0; _dmaTXIrq = DMA2_Stream0_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
+	case DMA2_Stream1_BASE: _dmamux = DMAMUX2_Channel1; _pdma = DMA2; _dma_channel = 1; _dmaTXIrq = DMA2_Stream1_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
+	case DMA2_Stream2_BASE: _dmamux = DMAMUX2_Channel2; _pdma = DMA2; _dma_channel = 2; _dmaTXIrq = DMA2_Stream2_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
+	case DMA2_Stream3_BASE: _dmamux = DMAMUX2_Channel3; _pdma = DMA2; _dma_channel = 3; _dmaTXIrq = DMA2_Stream3_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
+	case DMA2_Stream4_BASE: _dmamux = DMAMUX2_Channel4; _pdma = DMA2; _dma_channel = 4; _dmaTXIrq = DMA2_Stream4_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
+	case DMA2_Stream5_BASE: _dmamux = DMAMUX2_Channel5; _pdma = DMA2; _dma_channel = 5; _dmaTXIrq = DMA2_Stream5_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
+	case DMA2_Stream6_BASE: _dmamux = DMAMUX2_Channel6; _pdma = DMA2; _dma_channel = 6; _dmaTXIrq = DMA2_Stream6_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
+	case DMA2_Stream7_BASE: _dmamux = DMAMUX2_Channel7; _pdma = DMA2; _dma_channel = 7; _dmaTXIrq = DMA2_Stream7_IRQn; denable = RCC_AHB1ENR_DMA2EN; break;
 	}
 
 	_dma_state |= ILI9341_DMA_INIT | ILI9341_DMA_EVER_INIT;
@@ -167,7 +167,9 @@ void ILI9341_GIGA_n::initDMASettings(void) {
 	               | (s_spi_hardware_mapping[_spi_num].tx_dmamux1_req_id << DMAMUX_CxCR_DMAREQ_ID_Pos);
 
 	// transfer complete and error interupt
-	DMA1->LIFCR = DMA_LIFCR_CTCIF1;  //Clear IT in LISR Register
+
+	clearDMAInterruptStatus(DMA_LIFCR_CTCIF0);
+
 	NVIC_SetVector(_dmaTXIrq, (uint32_t)s_spi_hardware_mapping[_spi_num].txdmaisr);
 	NVIC_EnableIRQ(_dmaTXIrq);
 }
@@ -201,6 +203,7 @@ volatile uint32_t txIRQCount = 0;
 uint32_t M0AR_at_irq[2];
 
 //=======================================================================
+// TX DMA handler
 //=======================================================================
 // TX handler
 void ILI9341_GIGA_n::dmaInterrupt(void) {
@@ -208,16 +211,46 @@ void ILI9341_GIGA_n::dmaInterrupt(void) {
 		_dmaActiveDisplay[0]->process_dma_interrupt();
 	}
 }
+
 void ILI9341_GIGA_n::dmaInterrupt1(void) {
 	if (_dmaActiveDisplay[1]) {
 		_dmaActiveDisplay[1]->process_dma_interrupt();
 	}
 }
+
+uint8_t ILI9341_GIGA_n::getDMAInterruptStatus() {
+	switch (_dma_channel) {
+	case 0: return (_pdma->LISR >> 0) & 0x3f;
+	case 1: return (_pdma->LISR >> 6) & 0x3f;
+	case 2: return (_pdma->LISR >> 16) & 0x3f;
+	case 3: return (_pdma->LISR >> 22) & 0x3f;
+	case 4: return (_pdma->HISR >> 0) & 0x3f;
+	case 5: return (_pdma->HISR >> 6) & 0x3f;
+	case 6: return (_pdma->HISR >> 16) & 0x3f;
+	case 7: return (_pdma->HISR >> 22) & 0x3f;
+	}
+}
+
+void ILI9341_GIGA_n::clearDMAInterruptStatus(uint8_t clear_flags) {
+	switch (_dma_channel) {
+	case 0: _pdma->LIFCR = (clear_flags << 0); break;
+	case 1: _pdma->LIFCR = (clear_flags << 6); break;
+	case 2: _pdma->LIFCR = (clear_flags << 16); break;
+	case 3: _pdma->LIFCR = (clear_flags << 22); break;
+	case 4: _pdma->HIFCR = (clear_flags << 0); break;
+	case 5: _pdma->HIFCR = (clear_flags << 6); break;
+	case 6: _pdma->HIFCR = (clear_flags << 16); break;
+	case 7: _pdma->HIFCR = (clear_flags << 22); break;
+	}
+}
+
 void ILI9341_GIGA_n::process_dma_interrupt(void) {
 	txIRQCount++;
 	DBGdigitalToggleFast(LED_BLUE);
-	if (DMA1->LISR & DMA_LISR_TCIF1) {
-		DMA1->LIFCR = DMA_LIFCR_CTCIF1;
+	uint8_t istatus = getDMAInterruptStatus();
+
+	if (istatus & DMA_LISR_TCIF0) {
+		clearDMAInterruptStatus(DMA_LIFCR_CTCIF0);
 		if (_dma_sub_frame_count == 0) {
 			_dma_sub_frame_count = 1;
 			M0AR_at_irq[0] = (uint32_t)_dmaStream->M0AR;
@@ -251,13 +284,14 @@ void ILI9341_GIGA_n::process_dma_interrupt(void) {
 			// ??? error
 		}
 	}
-	if (DMA1->LISR & DMA_LISR_TEIF1) {
+	if (istatus & DMA_LISR_TEIF0) {
+		clearDMAInterruptStatus(DMA_LIFCR_CTEIF0);
 		DBGdigitalToggleFast(LED_RED);
-		DMA1->LIFCR = DMA_LIFCR_CTEIF1;
 	}
-	if (DMA1->LISR & DMA_LISR_FEIF1) {
+
+	if (istatus & DMA_LISR_FEIF0) {
+		clearDMAInterruptStatus(DMA_LISR_FEIF0);
 		DBGdigitalToggleFast(LED_RED);
-		DMA1->LIFCR = DMA_LIFCR_CFEIF1;
 	}
 }
 

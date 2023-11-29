@@ -16,15 +16,22 @@ REDIRECT_STDOUT_TO(Serial)
 #define TFT_SPEED_READ 1000000
 
 #include "SPI.h"
+#define USE_SPI1
+#ifdef USE_SPI1
 #define TFT_DC 9
 #define TFT_RST 8
 #define TFT_CS 7
-
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
+#else
+#define TFT_DC 24
+#define TFT_RST 26
+#define TFT_CS 22
+ILI9341_GIGA_n tft(&SPI, TFT_CS, TFT_DC, TFT_RST, DMA1_Stream3);
+#endif
 #define DEBUG_PIN 3
 
 #define USE_FRAME_BUFFER 1
 
-ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
 Adafruit_GFX_Button button;
 

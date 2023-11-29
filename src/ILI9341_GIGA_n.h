@@ -499,6 +499,8 @@ public:
   void abortUpdateAsync(); // Use this if there is a hang...
   void dumpDMASettings();
   void setSPIDataSize(uint8_t datasize);
+  uint8_t getDMAInterruptStatus();
+  void clearDMAInterruptStatus(uint8_t clear_flags);
 
 #ifdef ENABLE_ILI9341_FRAMEBUFFER
   uint16_t *getFrameBuffer() { return _pfbtft; }
@@ -519,10 +521,11 @@ public:
 #endif
   }
   SPI_TypeDef *_pgigaSpi = nullptr;
-
+  DMA_TypeDef *_pdma = nullptr;
   DMA_Stream_TypeDef *_dmaStream = DMA1_Stream1;
   DMAMUX_Channel_TypeDef *_dmamux = nullptr;
   IRQn_Type _dmaTXIrq;
+  uint8_t _dma_channel;
 
 
 //protected:
