@@ -72,10 +72,10 @@ bool ILI9341_GIGA_n::updateScreenAsync(bool update_cont) {
 	setSPIDataSize(16);
 	_dma_sub_frame_count = 0;
 
-	// enable RX
+	// enable TX in the stream
 	SET_BIT(_dmaStream->CR, DMA_SxCR_EN_Msk);
 
-	// Enable TX
+	// Enable TXDMA in SPI
 	SET_BIT(_pgigaSpi->CFG1, SPI_CFG1_TXDMAEN);  // enable SPI TX
 	// finally enable SPI
 	SET_BIT(_pgigaSpi->CR1, SPI_CR1_SPE);     // enable SPI

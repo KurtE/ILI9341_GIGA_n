@@ -231,10 +231,26 @@ typedef struct {
 
 class ILI9341_GIGA_n : public Print {
 public:
-  ILI9341_GIGA_n(SPIClass *pspi, uint8_t _CS, uint8_t _DC, uint8_t _RST = 255, 
+  // Constructor
+  //   pspi: either  &SPI (6 pin spi connector) or &SPI1 (shield pins)
+  //   CS: Chip select pin,  DC: Data/Command pin
+  //   RST: optional reset pin
+  //   dmaStream: If using DMA which dma stream to use (DMA[12]_Stream[0-7])
+  ILI9341_GIGA_n(SPIClass *pspi, uint8_t CS, uint8_t DC, uint8_t RST = 255, 
                 DMA_Stream_TypeDef * dmaStream = DMA1_Stream1);
-  ILI9341_GIGA_n(uint8_t _CS, uint8_t _DC, uint8_t _RST = 255, uint8_t _MOSI = 11,
-              uint8_t _SCLK = 13, uint8_t _MISO = 12);
+
+  // Constructor
+  //   CS: Chip select pin,  DC: Data/Command pin
+  //   RST: optional reset pin
+  //   MOSI, SCLK, MISO: I do nothing with these, don't think there are alternatives
+  ILI9341_GIGA_n(uint8_t CS, uint8_t DC, uint8_t RST = 255, uint8_t MOSI = 11,
+              uint8_t SCLK = 13, uint8_t MISO = 12);
+  //   pspi: either  &SPI (6 pin spi connector) or &SPI1 (shield pins)
+  //   CS: Chip select pin,  DC: Data/Command pin
+  //   RST: optional reset pin
+  //   dmaStream: If using DMA which dma stream to use (DMA[12]_Stream[0-7])
+
+  // Begin - main method to initialze the display.
   void begin(uint32_t spi_clock = ILI9341_SPICLOCK,
              uint32_t spi_clock_read = ILI9341_SPICLOCK_READ);
   void sleep(bool enable);

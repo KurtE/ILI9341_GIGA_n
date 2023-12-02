@@ -1,24 +1,16 @@
+
 //=============================================================================
-// Simple image (BMP optional JPEG and PNG) display program, which if the 
+// Simple image (BMP optional JPEG and PNG) display program, which if the
 // sketch is built with one of the USB Types which include MTP support
-// MTP Disk, or Serial + MTP Disk 
-// it will startup MTP and 
 //=============================================================================
 #include <SPI.h>
-#include <SD.h>
+//#include <SD.h>
+#include <elapsedMillis.h>
+#include <FATFileSystem.h>
+#include <Arduino_USBHostMbed5.h>
+#include <GIGA_digitalWriteFast.h>
 
-#if defined(USB_MTPDISK) || defined(USB_MTPDISK_SERIAL)
-// If user selected a USB type that includes MTP, then set it up
-#include <MTP_Teensy.h>
-#endif
-#ifdef MTP_TEENSY_H
-#define mtp_loop MTP.loop()
 
-#else
-#define mtp_loop
-#define MTP_MAX_FILENAME_LEN 256
-
-#endif
 /***************************************************
   Some of this code originated with the spitftbitmap.ino sketch
   that is part of the Adafruit_ILI9341 library. 
@@ -45,22 +37,10 @@
 
 // support for ILI9341_t3n - that adds additional features
 #include <ILI9341_GIGA_n.h>
-#define USE_KURTE_MMOD2
 
 
 //-----------------------------------------------------------------------------
-// common settings for most setups
-//-----------------------------------------------------------------------------
-#define TFT_DC 9
-#define TFT_CS 10
-#define TFT_RST -1
-
-
-#define SD_CS BUILTIN_SDCARD  // Works on T_3.6 and T_4.1 ...
-//#define SD_CS 10  // Works on SPI with this CS pin
-
-//-----------------------------------------------------------------------------
-// ILI9341 displays 
+// ILI9341 displays
 //-----------------------------------------------------------------------------
 
 // This is calibration data for the raw touch data to the screen coordinates
@@ -69,22 +49,19 @@
 #define TS_MINY 529
 #define TS_MAXX 3729
 #define TS_MAXY 3711
-
-#ifdef USE_KURTE_MMOD2
-#undef TFT_DC
-#undef TFT_CS
-#undef TFT_RST
+#define USE_SPI1
+#ifdef USE_SPI1
 #define TFT_DC 9
-#define TFT_CS 32
-#define TFT_RST 31
-// used for XPT2046
-#undef TOUCH_CS
-#undef TOUCH_TIRQ
-#define TOUCH_CS 26
-#define TOUCH_TIRQ 27
+#define TFT_RST 8
+#define TFT_CS 7
+ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
+#else
+#define TFT_DC 24
+#define TFT_RST 26
+#define TFT_CS 22
+ILI9341_GIGA_n tft(&SPI, TFT_CS, TFT_DC, TFT_RST, DMA1_Stream3);
 #endif
 
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
 #define SUPPORTS_XPT2046_TOUCH
 
 //-----------------------------------------------------------------------------
@@ -98,10 +75,7 @@ XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
 //-----------------------------------------------------------------------------
 // Some common things.
 //-----------------------------------------------------------------------------
-// don't try on tlc or 3.2
-#if !(defined(__MKL26Z64__) || defined(__MK20DX128__) || defined(__MK20DX256__))
 #define TFT_USE_FRAME_BUFFER
-#endif
 
 #ifndef BLUE
 #define BLUE 0x001F
@@ -117,13 +91,17 @@ XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
 //-----------------------------------------------------------------------------
 int g_tft_width = 0;
 int g_tft_height = 0;
-#ifdef TFT_EMULATE_FB
-uint16_t *g_frame_buffer = nullptr;
-#endif
+
 bool g_use_efb = true;
 
-File rootFile;
-File myfile;
+USBHostMSD msd;
+mbed::FATFileSystem usb("usb");
+
+#define MAX_FILENAME_LEN 256
+
+DIR *root_dir = nullptr;  //
+//File rootFile;
+FILE *myfile; // used for JPG and PNG file
 
 bool g_fast_mode = false;
 bool g_picture_loaded = false;
@@ -132,7 +110,7 @@ elapsedMillis emDisplayed;
 #define DISPLAY_IMAGES_TIME 2500
 
 // Options file information
-static const PROGMEM char options_file_name[] = "PictureViewOptions.ini";
+static const PROGMEM char options_file_name[] = "/usb/PictureViewOptions.ini";
 int g_debug_output = 0;
 int g_stepMode = 0;
 int g_BMPScale = -1;
@@ -162,44 +140,40 @@ uint8_t g_image_scale_up = 0;
 uint32_t g_WRCount = 0;  // debug count how many time writeRect called
 
 
-//==========================================================================
-// Helper functions to handle if we have MTP or not
-//==========================================================================
-inline uint32_t mtp_addFilesystem(FS &disk, const char *diskname) {
-  #ifdef MTP_TEENSY_H
-  return MTP.addFilesystem(disk, diskname);
-  #else
-  return 0xfffffffful;
-  #endif
-}
 
 
 //****************************************************************************
 // Setup
 //****************************************************************************
 void setup(void) {
-  // mandatory to begin the MTP session.
-#ifdef MTP_TEENSY_H
-MTP.begin();
-#endif
+  // Enable the USBHost
+  pinMode(PA_15, OUTPUT);
+  digitalWrite(PA_15, HIGH);
+
   // Keep the SD card inactive while working the display.
-  pinMode(SD_CS, INPUT_PULLUP);
   delay(20);
 
   while (!Serial && millis() < 3000)
     ;
-    // give chance to debug some display startups...
+  // give chance to debug some display startups...
 
-    //-----------------------------------------------------------------------------
-    // initialize display
-    //-----------------------------------------------------------------------------
+  //-----------------------------------------------------------------------------
+  // initialize display
+  //-----------------------------------------------------------------------------
 
-  pinMode(TOUCH_CS, OUTPUT);
-  digitalWriteFast(TOUCH_CS, HIGH);
   pinMode(TFT_CS, OUTPUT);
   digitalWriteFast(TFT_CS, HIGH);
-  Serial.printf("\n\n*** start up touch cs:%u irq:%u ***\n", TOUCH_CS, TOUCH_TIRQ);
+
+#ifdef TOUCH_CS
+  pinMode(TOUCH_CS, OUTPUT);
+  digitalWriteFast(TOUCH_CS, HIGH);
+  Serial.print("\n\n*** start up touch cs:");
+  Serial.print(TOUCH_CS, DEC);
+  Serial.print(" irq:");
+  Serial.print(TOUCH_TIRQ, DEC)
+    : Serial.println(" ***");
   ts.begin();
+#endif
 
 
   Serial.println("*** start up ILI9341 ***");
@@ -215,16 +189,43 @@ MTP.begin();
 
   g_tft_width = tft.width();
   g_tft_height = tft.height();
-#ifdef TFT_EMULATE_FB
-  g_frame_buffer = (uint16_t *)malloc(g_tft_width * g_tft_height * sizeof(uint16_t));
-#endif
 
   FillScreen(BLUE);
 
-  //-----------------------------------------------------------------------------
-  // Initialize MTP storages - in this case SD
-  //-----------------------------------------------------------------------------
-  //Serial.print(F("Initializing SD card..."));
+  // See if we can initialize the File system
+  Serial.print("Mounting USB device... ");
+
+  int err;
+  elapsedMillis em = 10000;  // fire the first time through
+  tft.setTextSize(2);
+
+  while (!msd.connect()) {
+      //while (!port.connected()) {
+      delay(1000);
+  }
+
+
+  while ((err = usb.mount(&msd)) != 0) {
+    if (em > 10000) {
+      FillScreen(RED);
+      tft.print("Error mounting USB devic: ");
+      tft.print(err, DEC);
+      Serial.print("Error mounting USB device ");
+      Serial.println(err);
+      em = 0;
+    }
+    delay(1000);
+  }
+  Serial.println("Mounted.");
+
+  root_dir = opendir("/usb/");
+  if (!root_dir) {
+    FillScreen(RED);
+    tft.print("Failed to open Root directory");
+  }
+
+
+#ifdef ADD_SD_SUPPORT
   tft.println(F("Init SD card..."));
 
   if (!SD.begin(SD_CS)) {
@@ -232,25 +233,14 @@ MTP.begin();
     FillScreen(RED);
     while (!SD.begin(SD_CS)) {
       //Serial.println(F("failed to access SD card!"));
-      tft.printf("failed to access SD card on cs:%u!\n", SD_CS);
+      tft.print("failed to access SD card on cs:%u!\n", SD_CS);
       delay(2000);
     }
   }
+#endif
 
-  mtp_addFilesystem(SD, "SD Card");
+  Serial.begin(115200);
 
-
-  //Serial.begin(9600);
-  tft.setTextColor(WHITE);
-  tft.setTextSize(2);
-  tft.println(F("Waiting for Arduino Serial Monitor..."));
-  while (!Serial) {
-    if (millis() > 3000) break;
-  }
-  if (CrashReport) Serial.print(CrashReport);
-  Serial.printf("\nScreen Width: %u Height: %d\n", g_tft_width, g_tft_height);
-
-  rootFile = SD.open("/");
 
   Serial.println("OK!");
   emDisplayed = g_display_image_time;
@@ -267,10 +257,10 @@ MTP.begin();
   g_jpg_scale_y_above[1] = g_tft_height * 3;
   g_jpg_scale_y_above[2] = g_tft_height * 6;
   g_jpg_scale_y_above[3] = g_tft_height * 12;
-  File optionsFile = SD.open(options_file_name);
+  FILE *optionsFile = fopen(options_file_name, "r+");
   if (optionsFile) {
     ProcessOptionsFile(optionsFile);
-    optionsFile.close();
+    fclose(optionsFile);
   }
   ShowAllOptionValues();
 
@@ -281,12 +271,11 @@ MTP.begin();
 // loop
 //****************************************************************************
 void loop() {
-  mtp_loop;
-// don't process unless time elapsed or g_fast_mode
-// Timing may depend on which type of display we are using...
-// if it has logical frame buffer, maybe as soon as we display an image,
-// try to load the next one, and then wait until the image time to
-// tell display to update...
+  // don't process unless time elapsed or g_fast_mode
+  // Timing may depend on which type of display we are using...
+  // if it has logical frame buffer, maybe as soon as we display an image,
+  // try to load the next one, and then wait until the image time to
+  // tell display to update...
   if (!g_fast_mode && !g_stepMode && (!g_picture_loaded) && (emDisplayed < (uint32_t)g_display_image_time)) return;
 
   //---------------------------------------------------------------------------
@@ -302,18 +291,16 @@ void loop() {
 
     Serial.println("\nLoop looking for image file");
 
-    File imageFile;
-
+    struct dirent *dir_entry;
     for (;;) {
-      imageFile = rootFile.openNextFile();
-      if (!imageFile) {
+      dir_entry = readdir(root_dir);
+      if (!dir_entry) {
         if (did_rewind) break;  // only go around once.
-        rootFile.rewindDirectory();
-        imageFile = rootFile.openNextFile();
-        did_rewind = true;
+        rewinddir(root_dir);
+        continue;  // try again
       }
       // maybe should check file name quick and dirty
-      name = imageFile.name();
+      name = dir_entry->d_name;
       name_len = strlen(name);
       if (!name) continue;
 
@@ -322,35 +309,39 @@ void loop() {
       if (stricmp(&name[name_len - 4], ".bmp") == 0) bmp_file = true;
       if (stricmp(&name[name_len - 4], ".jpg") == 0) jpg_file = true;
       if (stricmp(&name[name_len - 4], ".png") == 0) png_file = true;
-      if (stricmp(name, options_file_name) == 0) ProcessOptionsFile(imageFile);
+      //if (stricmp(name, options_file_name) == 0) ProcessOptionsFile(imageFile);
       if (bmp_file || jpg_file || png_file) break;
     }
 
     //---------------------------------------------------------------------------
     // Found a file so try to process it.
     //---------------------------------------------------------------------------
-    if (imageFile) {
+    if (dir_entry) {
 
       elapsedMillis emDraw = 0;
-      char file_name[MTP_MAX_FILENAME_LEN];
-      strncpy(file_name, name, sizeof(file_name));
+      char file_name[MAX_FILENAME_LEN];
+      strcpy(file_name, "/usb/");
+      strcat(file_name, name);
       g_WRCount = 0;
       if (bmp_file) {
-        bmpDraw(imageFile, imageFile.name(), true);
+        bmpDraw(file_name, true);
 
 #ifdef __JPEGDEC__
       } else if (jpg_file) {
-        processJPGFile(name, true);
-        imageFile.close();
+        processJPGFile(file_name, true);
 #endif
 
 #ifdef __PNGDEC__
       } else if (png_file) {
-        processPNGFile(name, true);
-        imageFile.close();
+        processPNGFile(file_name, true);
 #endif
       }
-      Serial.printf("!!File:%s Time:%u writeRect calls:%u\n", file_name, (uint32_t)emDraw, g_WRCount);
+      Serial.print("!!File:");
+      Serial.print(file_name);
+      Serial.print(" Time:");
+      Serial.print((uint32_t)emDraw, DEC);
+      Serial.print(" writeRect calls:");
+      Serial.println(g_WRCount, DEC);
     } else {
       FillScreen(GREEN);
       tft.setTextColor(WHITE);
@@ -360,10 +351,10 @@ void loop() {
     g_picture_loaded = true;
   }
 
-//---------------------------------------------------------------------------
-// If the display has a command to update the screen now, see if we should
-// do now or wait until proper time
-//---------------------------------------------------------------------------
+  //---------------------------------------------------------------------------
+  // If the display has a command to update the screen now, see if we should
+  // do now or wait until proper time
+  //---------------------------------------------------------------------------
   if (g_fast_mode || g_stepMode || (emDisplayed >= (uint32_t)g_display_image_time)) {
     if (g_picture_loaded) {
       tft.updateScreen();
@@ -373,13 +364,13 @@ void loop() {
     //---------------------------------------------------------------------------
     if (g_stepMode) {
       int ch;
-      Serial.printf("Step Mode: enter anything to continue");
-      while ((ch = Serial.read()) == -1) mtp_loop;  // in case at startup...
+      Serial.println("Step Mode: enter anything to continue");
+      while ((ch = Serial.read()) == -1) {}  // in case at startup...
       while (ch != -1) {
         if (ch == 'd') g_debug_output = !g_debug_output;
         if (ch == 's') g_stepMode = !g_stepMode;
         if (ch == 'f') g_use_efb = !g_use_efb;
-        if (ch == 'l') listFiles(&SD);
+        if (ch == 'l') listFiles();
 
         ch = Serial.read();
       }
@@ -387,13 +378,13 @@ void loop() {
       int ch;
       while (Serial.read() != -1)
         ;
-      Serial.printf("Paused: enter anything to continue");
-      while ((ch = Serial.read()) == -1) mtp_loop;
+      Serial.println("Paused: enter anything to continue");
+      while ((ch = Serial.read()) == -1) {}
       while (ch != -1) {
         if (ch == 'd') g_debug_output = !g_debug_output;
         if (ch == 's') g_stepMode = !g_stepMode;
         if (ch == 'f') g_use_efb = !g_use_efb;
-        if (ch == 'l') listFiles(&SD);
+        if (ch == 'l') listFiles();
         ch = Serial.read();
       }
     }
@@ -402,6 +393,17 @@ void loop() {
 #ifdef TFT_USE_FRAME_BUFFER
   }
 #endif
+}
+
+int stricmp(const char *s1, const char *s2) {
+  while (*s1 != 0 && *s2 != 0) {
+    if (*s1 != *s2 && ::toupper(*s1) != ::toupper(*s2)) {
+      return -1;
+    }
+    s1++;
+    s2++;
+  }
+  return (*s1 == 0 && *s2 == 0) ? 0 : -1;
 }
 
 //****************************************************************************
@@ -417,7 +419,7 @@ inline void writeClippedRect(int16_t x, int16_t y, int16_t cx, int16_t cy, uint1
 //    example looking for update file.
 // This is a real simple parser x=y where x is string y is int...
 //=============================================================================
-DateTimeFields g_dtf_optFileLast = { 99 };  // not valid so change first time...
+//DateTimeFields g_dtf_optFileLast = { 99 };  // not valid so change first time...
 #define MAX_KEY_NAME 20
 typedef struct {
   const char key_name[MAX_KEY_NAME];
@@ -444,23 +446,29 @@ static const PROGMEM key_name_value_t keyNameValues[] = {
   { "ImageTimeMS", &g_display_image_time }
 };
 
-bool ReadOptionsLine(File &optFile, char *key_name, uint8_t sizeof_key, int &key_value) {
+int ReadFileChar(FILE *f) {
+  char c;
+  size_t ich = fread(&c, 1, 1, f);
+  return ich ? c : -1;
+}
+
+bool ReadOptionsLine(FILE *optFile, char *key_name, uint8_t sizeof_key, int &key_value) {
   int ch;
 
   key_value = 0;
   // first lets get key name ignore all whitespace...
-  while ((ch = optFile.read()) <= ' ') {
+  while ((ch = ReadFileChar(optFile)) <= ' ') {
     if (ch < 0) return false;
   }
 
   uint8_t ich = 0;
   while (ich < (sizeof_key - 1)) {
     if (ch == '=') {
-      ch = optFile.read();
+      ch = ReadFileChar(optFile);
       break;
     }
     key_name[ich++] = ch;
-    ch = optFile.read();
+    ch = ReadFileChar(optFile);
     if (ch < 0) return false;  //
   }
   key_name[ich] = '\0';
@@ -468,20 +476,20 @@ bool ReadOptionsLine(File &optFile, char *key_name, uint8_t sizeof_key, int &key
   int sign_value = 1;
   if (ch == '-') {
     sign_value = -1;
-    ch = optFile.read();
+    ch = ReadFileChar(optFile);
     if (ch == -1) return false;
   }
 
   while ((ch >= '0') && (ch <= '9')) {
     key_value = key_value * 10 + ch - '0';
-    ch = optFile.read();
+    ch = ReadFileChar(optFile);
   }
   // should probably check for other stuff, but...
   key_value *= sign_value;
 
   // total hacky but allow hex value
   if ((key_value == 0) && ((ch == 'x') || (ch == 'X'))) {
-    ch = optFile.read();
+    ch = ReadFileChar(optFile);
     for (;;) {
       if ((ch >= '0') && (ch <= '9')) key_value = key_value * 16 + ch - '0';
       else if ((ch >= 'a') && (ch <= 'f'))
@@ -490,7 +498,7 @@ bool ReadOptionsLine(File &optFile, char *key_name, uint8_t sizeof_key, int &key
         key_value = key_value * 16 + 10 + ch - 'A';
       else
         break;
-      ch = optFile.read();
+      ch = ReadFileChar(optFile);
     }
   }
 
@@ -498,24 +506,30 @@ bool ReadOptionsLine(File &optFile, char *key_name, uint8_t sizeof_key, int &key
 }
 
 
-bool ProcessOptionsFile(File &optfile) {
-  DateTimeFields dtf;
+bool ProcessOptionsFile(FILE *optfile) {
+  if (!optfile) return false;
   int key_value;
   char key_name[20];
-  if (!optfile) return false;
+#ifdef LATER
+  DateTimeFields dtf;
   if (!optfile.getModifyTime(dtf)) return false;
   if (memcmp(&dtf, &g_dtf_optFileLast, sizeof(dtf)) == 0) return false;
   g_dtf_optFileLast = dtf;
   Serial.printf("Updated Options file found date: M: %02u/%02u/%04u %02u:%02u\n",
                 dtf.mon + 1, dtf.mday, dtf.year + 1900, dtf.hour, dtf.min);
 
-  // do simple scan through file
+// do simple scan through file
+#endif
   bool found = false;
   while (ReadOptionsLine(optfile, key_name, sizeof(key_name), key_value)) {
-    Serial.printf("\t>>%s=%d", key_name, key_value);
+    Serial.print("\t>>");
+    Serial.print(key_name);
+    Serial.print("=");
+    Serial.print(key_value, DEC);
     for (uint8_t key_index = 0; key_index < (sizeof(keyNameValues) / sizeof(keyNameValues[0])); key_index++) {
       if (stricmp(key_name, keyNameValues[key_index].key_name) == 0) {
-        Serial.printf(" was: %d\n", *(keyNameValues[key_index].key_value_addr));
+        Serial.print(" was: ");
+        Serial.println(*(keyNameValues[key_index].key_value_addr), DEC);
         *(keyNameValues[key_index].key_value_addr) = key_value;
         found = true;
         break;
@@ -529,10 +543,15 @@ bool ProcessOptionsFile(File &optfile) {
 
 void ShowAllOptionValues() {
   Serial.println("\n----------------------------------");
-  Serial.printf("Sketch uses Option file: %s at the root of SD Card\n", options_file_name);
+  Serial.print("Sketch uses Option file: ");
+  Serial.print(options_file_name);
+  Serial.println(" at the root of SD Card");
   Serial.println("\t<All key names>=<current key value");
   for (uint8_t key_index = 0; key_index < (sizeof(keyNameValues) / sizeof(keyNameValues[0])); key_index++) {
-    Serial.printf("\t%s=%d\n", keyNameValues[key_index].key_name, *(keyNameValues[key_index].key_value_addr));
+    Serial.print("\t");
+    Serial.print(keyNameValues[key_index].key_name);
+    Serial.print("=");
+    Serial.println(*(keyNameValues[key_index].key_value_addr), DEC);
   }
   Serial.println("----------------------------------\n");
 }
@@ -560,9 +579,9 @@ inline void Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {
 // good balance for tiny AVR chips.
 
 #define BUFFPIXEL 80
-void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
+void bmpDraw(const char *filename, bool fErase) {
 
-  //  File     bmpFile;
+  //  FILE     bmpFile;
   int image_width, image_height;        // W+H in pixels
   uint8_t bmpDepth;                     // Bit depth (currently must be 24)
   uint32_t bmpImageoffset;              // Start of image data in file
@@ -577,6 +596,13 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
 
   uint16_t *usPixels = nullptr;
 
+
+  FILE *bmpFile = fopen(filename, "r+");
+  if (!bmpFile) {
+    Serial.print("Failed to open: ");
+    Serial.println(filename);
+    return; 
+  }
 
   Serial.println();
   Serial.print(F("Loading image '"));
@@ -602,7 +628,12 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
       if ((bmpDepth == 24) && (read32(bmpFile) == 0)) {  // 0 = uncompressed
 
         goodBmp = true;  // Supported BMP format -- proceed!
-        Serial.printf("Image size: %dx%d depth:%u", image_width, image_height, bmpDepth);
+        Serial.print("Image size: ");
+        Serial.print(image_width);
+        Serial.print("x");
+        Serial.print(image_height);
+        Serial.print(" depth:");
+        Serial.print(bmpDepth, DEC);
         // BMP rows are padded (if needed) to 4-byte boundary
         rowSize = (image_width * 3 + 3) & ~3;
 
@@ -655,7 +686,13 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
           }
 
           g_image_scale = 2;  // bugbug use this to know which row to read in to...
-          Serial.printf("Scale: %d Image Offsets (%d, %d)\n", g_image_scale_up, g_image_offset_x, g_image_offset_y);
+          Serial.print("Scale: ");
+          Serial.print(g_image_scale_up, DEC);
+          Serial.print(" Image Offsets (");
+          Serial.print(g_image_offset_x, DEC);
+          Serial.print(", ");
+          Serial.print(g_image_offset_y, DEC);
+          Serial.println(")");
 
           if (fErase && (((image_width * g_image_scale_up) < g_tft_width) || ((image_height * g_image_scale_up) < image_height))) {
             FillScreen((uint16_t)g_background_color);
@@ -673,7 +710,13 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
             g_image_offset_x = 0;
             g_image_offset_y = 0;
           }
-          Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
+          Serial.print("Scale: ");
+          Serial.print(g_image_scale, DEC);
+          Serial.print(" Image Offsets (");
+          Serial.print(g_image_offset_x, DEC);
+          Serial.print(", ");
+          Serial.print(g_image_offset_y, DEC);
+          Serial.println(")");
 
           if (fErase && (((image_width / g_image_scale) < g_tft_width) || ((image_height / g_image_scale) < image_height))) {
             FillScreen((uint16_t)g_background_color);
@@ -695,8 +738,8 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
               pos = bmpImageoffset + (image_height - 1 - row) * rowSize;
             else  // Bitmap is stored top-to-bottom
               pos = bmpImageoffset + row * rowSize;
-            if (bmpFile.position() != pos) {  // Need seek?
-              bmpFile.seek(pos);
+            if ((uint32_t)ftell(bmpFile) != pos) {  // Need seek?
+              fseek(bmpFile, pos, SEEK_SET);
               buffidx = sizeof(sdbuffer);  // Force buffer reload
             }
 
@@ -704,7 +747,7 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
             for (col = 0; col < image_width; col++) {  // For each pixel...
               // Time to read more pixel data?
               if (buffidx >= sizeof(sdbuffer)) {  // Indeed
-                bmpFile.read(sdbuffer, sizeof(sdbuffer));
+                fread(sdbuffer, 1, sizeof(sdbuffer), bmpFile);
                 buffidx = 0;  // Set index to beginning
               }
 
@@ -716,7 +759,7 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
             }  // end pixel
             if (g_image_scale_up) {
               ScaleUpWriteClippedRect(row, image_width, usPixels);
-            }else if (g_image_scale == 1) {
+            } else if (g_image_scale == 1) {
               writeClippedRect(0, row, image_width, 1, pusRow);
             } else {
               ScaleDownWriteClippedRect(row, image_width, usPixels);
@@ -730,7 +773,7 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
     }
   }
 
-  bmpFile.close();
+  fclose(bmpFile);
   if (!goodBmp) Serial.println(F("BMP format not recognized."));
 }
 
@@ -738,19 +781,19 @@ void bmpDraw(File &bmpFile, const char *filename, bool fErase) {
 // BMP data is stored little-endian, Arduino is little-endian too.
 // May need to reverse subscript order if porting elsewhere.
 
-uint16_t read16(File &f) {
+uint16_t read16(FILE *f) {
   uint16_t result;
-  ((uint8_t *)&result)[0] = f.read();  // LSB
-  ((uint8_t *)&result)[1] = f.read();  // MSB
+  ((uint8_t *)&result)[0] = ReadFileChar(f);  // LSB
+  ((uint8_t *)&result)[1] = ReadFileChar(f);  // MSB
   return result;
 }
 
-uint32_t read32(File &f) {
+uint32_t read32(FILE *f) {
   uint32_t result;
-  ((uint8_t *)&result)[0] = f.read();  // LSB
-  ((uint8_t *)&result)[1] = f.read();
-  ((uint8_t *)&result)[2] = f.read();
-  ((uint8_t *)&result)[3] = f.read();  // MSB
+  ((uint8_t *)&result)[0] = ReadFileChar(f);  // LSB
+  ((uint8_t *)&result)[1] = ReadFileChar(f);
+  ((uint8_t *)&result)[2] = ReadFileChar(f);
+  ((uint8_t *)&result)[3] = ReadFileChar(f);  // MSB
   return result;
 }
 
@@ -758,12 +801,16 @@ uint32_t read32(File &f) {
 
 #if defined(__JPEGDEC__) || defined(__PNGDEC__)
 void *myOpen(const char *filename, int32_t *size) {
-  myfile = SD.open(filename);
-  *size = myfile.size();
+  myfile = fopen(filename, "r+");
+  if (myfile) {
+    fseek(myfile, 0, SEEK_END); // seek to end of file
+    *size = ftell(myfile); // get current file pointer
+    fseek(myfile, 0, SEEK_SET); // seek back to beginning of file
+  }
   return &myfile;
 }
 void myClose(void *handle) {
-  if (myfile) myfile.close();
+  if (myfile) fclose(myfile);
 }
 #endif
 
@@ -798,7 +845,7 @@ void ScaleUpWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
   // First lets generate the one for the actual row;
   uint16_t *p = usRowOut + image_width_out * (g_image_scale_up - 1);
   uint16_t *ppixIn = puCurRow;
-  for(int col = 0; col < image_width; col++) {
+  for (int col = 0; col < image_width; col++) {
     // bug bug.. could be faster
     *p = *ppixIn++;  // copy the pixel in to pixel out
     if (col) {
@@ -842,38 +889,38 @@ void ScaleUpWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
       puCol += g_image_scale_up;
     }
     writeClippedRect(0, 1 + (row - 1) * g_image_scale_up, image_width_out, g_image_scale_up, usRowOut);
-  } else {     
-  // first row just output it's own data.
+  } else {
+    // first row just output it's own data.
     writeClippedRect(0, 0, image_width_out, 1, usRowOut + image_width_out * (g_image_scale_up - 1));
   }
-}  
+}
 
 void ScaleDownWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
-  if ((row % g_image_scale) == (g_image_scale -1)) {
-      //--------------------------------------------------------------------
-      // else scale down
-      //--------------------------------------------------------------------
-      uint16_t newx = 0;
-      for (uint16_t pix_cnt = 0; pix_cnt < image_width; pix_cnt += g_image_scale) {
-        uint8_t red = 0;
-        uint8_t green = 0;
-        uint8_t blue = 0;
-        float r = 0;
-        float g = 0;
-        float b = 0;
-        for (uint8_t i = 0; i < g_image_scale; i++) {
-          for (uint8_t j = 0; j < g_image_scale; j++) {
-            Color565ToRGB(usPixels[pix_cnt + i + (j * image_width)], red, green, blue);
-            // Sum the squares of components instead
-            r += red * red;
-            g += green * green;
-            b += blue * blue;
-          }
+  if ((row % g_image_scale) == (g_image_scale - 1)) {
+    //--------------------------------------------------------------------
+    // else scale down
+    //--------------------------------------------------------------------
+    uint16_t newx = 0;
+    for (uint16_t pix_cnt = 0; pix_cnt < image_width; pix_cnt += g_image_scale) {
+      uint8_t red = 0;
+      uint8_t green = 0;
+      uint8_t blue = 0;
+      float r = 0;
+      float g = 0;
+      float b = 0;
+      for (uint8_t i = 0; i < g_image_scale; i++) {
+        for (uint8_t j = 0; j < g_image_scale; j++) {
+          Color565ToRGB(usPixels[pix_cnt + i + (j * image_width)], red, green, blue);
+          // Sum the squares of components instead
+          r += red * red;
+          g += green * green;
+          b += blue * blue;
         }
-        // overwrite the start of our buffer with
-        usPixels[newx++] = Color565((uint8_t)sqrt(r / (g_image_scale * g_image_scale)), (uint8_t)sqrt(g / (g_image_scale * g_image_scale)), (uint8_t)sqrt(b / (g_image_scale * g_image_scale)));
       }
-      writeClippedRect(0, row / g_image_scale, image_width / g_image_scale, 1, usPixels);
+      // overwrite the start of our buffer with
+      usPixels[newx++] = Color565((uint8_t)sqrt(r / (g_image_scale * g_image_scale)), (uint8_t)sqrt(g / (g_image_scale * g_image_scale)), (uint8_t)sqrt(b / (g_image_scale * g_image_scale)));
+    }
+    writeClippedRect(0, row / g_image_scale, image_width / g_image_scale, 1, usPixels);
   }
 }
 
@@ -883,92 +930,107 @@ void ScaleDownWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
 //=============================================================================
 //used for jpeg files primarily
 #ifdef __JPEGDEC__
-  JPEGDEC jpeg;
+JPEGDEC jpeg;
 
 
-  void processJPGFile(const char *name, bool fErase) {
-    Serial.println();
-    Serial.print(F("Loading JPG image '"));
-    Serial.print(name);
-    Serial.println('\'');
-    uint8_t scale = 1;
-    if (jpeg.open(name, myOpen, myClose, myReadJPG, mySeekJPG, JPEGDraw)) {
-      int image_width = jpeg.getWidth();
-      int image_height = jpeg.getHeight();
-      int decode_options = 0;
-      Serial.printf("Image size: %dx%d", image_width, image_height);
-      switch (g_JPGScale) {
-        case 1:
-          scale = 1;
-          decode_options = 0;
-          break;
-        case 2:
-          scale = 2;
-          decode_options = JPEG_SCALE_HALF;
-          break;
-        case 4:
-          scale = 4;
-          decode_options = JPEG_SCALE_QUARTER;
-          break;
-        case 8:
-          scale = 8;
-          decode_options = JPEG_SCALE_EIGHTH;
-          break;
-        default:
-          {
-            if ((image_width > g_jpg_scale_x_above[SCL_16TH]) || (image_height > g_jpg_scale_y_above[SCL_16TH])) {
-              decode_options = JPEG_SCALE_EIGHTH | JPEG_SCALE_HALF;
-              scale = 16;
-            } else if ((image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (image_height > g_jpg_scale_y_above[SCL_EIGHTH])) {
-              decode_options = JPEG_SCALE_EIGHTH;
-              scale = 8;
-            } else if ((image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (image_height > g_jpg_scale_y_above[SCL_QUARTER])) {
-              decode_options = JPEG_SCALE_QUARTER;
-              scale = 4;
-            } else if ((image_width > g_jpg_scale_x_above[SCL_HALF]) || (image_height > g_jpg_scale_y_above[SCL_HALF])) {
-              decode_options = JPEG_SCALE_HALF;
-              scale = 2;
-            }
+void processJPGFile(const char *name, bool fErase) {
+  Serial.println();
+  Serial.print(F("Loading JPG image '"));
+  Serial.print(name);
+  Serial.println('\'');
+  uint8_t scale = 1;
+  if (jpeg.open(name, myOpen, myClose, myReadJPG, mySeekJPG, JPEGDraw)) {
+    int image_width = jpeg.getWidth();
+    int image_height = jpeg.getHeight();
+    int decode_options = 0;
+    Serial.print("Image size: ");
+    Serial.print(image_width);
+    Serial.print("x");
+    Serial.print(image_height);
+    switch (g_JPGScale) {
+      case 1:
+        scale = 1;
+        decode_options = 0;
+        break;
+      case 2:
+        scale = 2;
+        decode_options = JPEG_SCALE_HALF;
+        break;
+      case 4:
+        scale = 4;
+        decode_options = JPEG_SCALE_QUARTER;
+        break;
+      case 8:
+        scale = 8;
+        decode_options = JPEG_SCALE_EIGHTH;
+        break;
+      default:
+        {
+          if ((image_width > g_jpg_scale_x_above[SCL_16TH]) || (image_height > g_jpg_scale_y_above[SCL_16TH])) {
+            decode_options = JPEG_SCALE_EIGHTH | JPEG_SCALE_HALF;
+            scale = 16;
+          } else if ((image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (image_height > g_jpg_scale_y_above[SCL_EIGHTH])) {
+            decode_options = JPEG_SCALE_EIGHTH;
+            scale = 8;
+          } else if ((image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (image_height > g_jpg_scale_y_above[SCL_QUARTER])) {
+            decode_options = JPEG_SCALE_QUARTER;
+            scale = 4;
+          } else if ((image_width > g_jpg_scale_x_above[SCL_HALF]) || (image_height > g_jpg_scale_y_above[SCL_HALF])) {
+            decode_options = JPEG_SCALE_HALF;
+            scale = 2;
           }
-      }
-      if (fErase && ((image_width / scale < g_tft_width) || (image_height / scale < g_tft_height))) {
-        FillScreen((uint16_t)g_background_color);
-      }
-
-      if (g_center_image) {
-        g_image_offset_x = (g_tft_width - image_width / scale) / 2;
-        g_image_offset_y = (g_tft_height - image_height / scale) / 2;
-      } else {
-        g_image_offset_x = 0;
-        g_image_offset_y = 0;
-      }
-      g_image_scale = scale;
-      Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
-
-      jpeg.decode(0, 0, decode_options);
-      jpeg.close();
-    } else {
-      Serial.println("Was not a valid jpeg file");
+        }
     }
+    if (fErase && ((image_width / scale < g_tft_width) || (image_height / scale < g_tft_height))) {
+      FillScreen((uint16_t)g_background_color);
+    }
+
+    if (g_center_image) {
+      g_image_offset_x = (g_tft_width - image_width / scale) / 2;
+      g_image_offset_y = (g_tft_height - image_height / scale) / 2;
+    } else {
+      g_image_offset_x = 0;
+      g_image_offset_y = 0;
+    }
+    g_image_scale = scale;
+    Serial.print("Scale: 1/");
+    Serial.print(g_image_scale);
+    Serial.print(" Image Offsets (");
+    Serial.print(g_image_offset_x);
+    Serial.print(", ");
+    Serial.print(g_image_offset_y), Serial.println(")");
+
+    jpeg.decode(0, 0, decode_options);
+    jpeg.close();
+  } else {
+    Serial.println("Was not a valid jpeg file");
   }
+}
 
 
-  int32_t myReadJPG(JPEGFILE * handle, uint8_t * buffer, int32_t length) {
-    if (!myfile) return 0;
-    return myfile.read(buffer, length);
-  }
-  int32_t mySeekJPG(JPEGFILE * handle, int32_t position) {
-    if (!myfile) return 0;
-    return myfile.seek(position);
-  }
+int32_t myReadJPG(JPEGFILE *handle, uint8_t *buffer, int32_t length) {
+  if (!myfile) return 0;
+  return fread(buffer, 1, length,  myfile);
+}
+int32_t mySeekJPG(JPEGFILE *handle, int32_t position) {
+  if (!myfile) return 0;
+  return fseek(myfile, position, SEEK_SET);
+}
 
-  int JPEGDraw(JPEGDRAW * pDraw) {
-    if (g_debug_output) Serial.printf("jpeg draw: x,y=%d,%d, cx,cy = %d,%d\n",
-                                      pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight);
-
-    writeClippedRect(pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight, pDraw->pPixels);
-    return 1;
+int JPEGDraw(JPEGDRAW *pDraw) {
+  if (g_debug_output) {
+    Serial.print("jpeg draw: x,y=");
+    Serial.print(pDraw->x); 
+    Serial.print(","); 
+    Serial.print(pDraw->y);
+    Serial.print(", cx,cy = "); 
+    Serial.print(pDraw->iWidth); 
+    Serial.print(","); 
+    Serial.println(pDraw->iHeight);
   }
+  writeClippedRect(pDraw->x, pDraw->y, pDraw->iWidth, pDraw->iHeight, pDraw->pPixels);
+  return 1;
+}
 #endif
 
 //=============================================================================
@@ -976,95 +1038,98 @@ void ScaleDownWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
 //=============================================================================
 //used for png files primarily
 #ifdef __PNGDEC__
-  PNG png;
+PNG png;
 
-  void processPNGFile(const char *name, bool fErase) {
-    int rc;
+void processPNGFile(const char *name, bool fErase) {
+  int rc;
 
-    Serial.println();
-    Serial.print(F("Loading PNG image '"));
-    Serial.print(name);
-    Serial.println('\'');
-    rc = png.open((const char *)name, myOpen, myClose, myReadPNG, mySeekPNG, PNGDraw);
-    if (rc == PNG_SUCCESS) {
-      g_image_width = png.getWidth();
-      g_image_height = png.getHeight();
-      g_image_scale_up = 0;
+  Serial.println();
+  Serial.print(F("Loading PNG image '"));
+  Serial.print(name);
+  Serial.println('\'');
+  rc = png.open((const char *)name, myOpen, myClose, myReadPNG, mySeekPNG, PNGDraw);
+  if (rc == PNG_SUCCESS) {
+    g_image_width = png.getWidth();
+    g_image_height = png.getHeight();
+    g_image_scale_up = 0;
 
-      g_image_scale = 1;  // default...
-      Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", g_image_width, g_image_height, png.getBpp(), png.getPixelType());
-      if (g_PNGScale > 0) {
-        g_image_scale = g_PNGScale;  // use what they passed in
-      } else if (g_PNGScale < 0) {
-        if (g_image_width > g_tft_width) g_image_scale = (g_image_width + g_tft_width - 1) / g_tft_width;
-        if (g_image_height > g_tft_height) {
-          int yscale = (g_image_height + g_tft_height - 1) / g_tft_height;
-          if (yscale > g_image_scale) g_image_scale = yscale;
-        }
-      } else {
-        if ((g_image_width > g_jpg_scale_x_above[SCL_16TH]) || (g_image_height > g_jpg_scale_y_above[SCL_16TH])) {
-          g_image_scale = 16;
-        } else if ((g_image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (g_image_height > g_jpg_scale_y_above[SCL_EIGHTH])) {
-          g_image_scale = 8;
-        } else if ((g_image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (g_image_height > g_jpg_scale_y_above[SCL_QUARTER])) {
-          g_image_scale = 4;
-        } else if ((g_image_width > g_jpg_scale_x_above[SCL_HALF]) || (g_image_height > g_jpg_scale_y_above[SCL_HALF])) {
-          g_image_scale = 2;
-        }
-      }
-
-      if (fErase && (((g_image_width / g_image_scale) < g_tft_width) || ((g_image_height / g_image_scale) < g_image_height))) {
-        FillScreen((uint16_t)g_background_color);
-      }
-
-      if (g_center_image) {
-        g_image_offset_x = (g_tft_width - (png.getWidth() / g_image_scale)) / 2;
-        g_image_offset_y = (g_tft_height - (png.getHeight() / g_image_scale)) / 2;
-      } else {
-        g_image_offset_x = 0;
-        g_image_offset_y = 0;
-      }
-
-      Serial.printf("Scale: 1/%d Image Offsets (%d, %d)\n", g_image_scale, g_image_offset_x, g_image_offset_y);
-      uint16_t *usPixels = (uint16_t *)malloc(g_image_width * ((g_image_scale == 1) ? 16 : g_image_scale) * sizeof(uint16_t));
-      if (usPixels) {
-        rc = png.decode(usPixels, 0);
-        png.close();
-        free(usPixels);
-      } else
-        Serial.println("Error could not allocate line buffer");
-    } else {
-      Serial.printf("Was not a valid PNG file RC:%d\n", rc);
-    }
-  }
-
-  int32_t myReadPNG(PNGFILE * handle, uint8_t * buffer, int32_t length) {
-    if (!myfile) return 0;
-    return myfile.read(buffer, length);
-  }
-  int32_t mySeekPNG(PNGFILE * handle, int32_t position) {
-    if (!myfile) return 0;
-    return myfile.seek(position);
-  }
-
-  // Function to draw pixels to the display
-  void PNGDraw(PNGDRAW * pDraw) {
-    uint16_t *usPixels = (uint16_t *)pDraw->pUser;
-    if (g_image_scale == 1) {
-      uint16_t *pusRow = usPixels + pDraw->iWidth * (pDraw->y & 0xf);  // we have 16 lines to work with
-      png.getLineAsRGB565(pDraw, pusRow, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
-      // but we will output 8 lines at time.
-      if ((pDraw->y == g_image_height - 1) || ((pDraw->y & 0x7) == 0x7)) {
-        //      WaitforWRComplete(); // make sure previous writes are done
-        writeClippedRect(0, pDraw->y & 0xfff8, pDraw->iWidth, (pDraw->y & 0x7) + 1,
-                         usPixels + (pDraw->y & 0x8) * pDraw->iWidth, false);
+    g_image_scale = 1;  // default...
+    Serial.print("image specs: ("); Serial.print(g_image_width); Serial.print(" x "); Serial.print(g_image_height); 
+    Serial.print("), "); Serial.print(png.getBpp()); Serial.print(" bpp, pixel type: "); Serial.println(png.getPixelType());
+    if (g_PNGScale > 0) {
+      g_image_scale = g_PNGScale;  // use what they passed in
+    } else if (g_PNGScale < 0) {
+      if (g_image_width > g_tft_width) g_image_scale = (g_image_width + g_tft_width - 1) / g_tft_width;
+      if (g_image_height > g_tft_height) {
+        int yscale = (g_image_height + g_tft_height - 1) / g_tft_height;
+        if (yscale > g_image_scale) g_image_scale = yscale;
       }
     } else {
-      uint16_t *pusRow = usPixels + pDraw->iWidth * (pDraw->y % g_image_scale);
-      png.getLineAsRGB565(pDraw, pusRow, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
-      ScaleDownWriteClippedRect(pDraw->y, pDraw->iWidth, usPixels);
+      if ((g_image_width > g_jpg_scale_x_above[SCL_16TH]) || (g_image_height > g_jpg_scale_y_above[SCL_16TH])) {
+        g_image_scale = 16;
+      } else if ((g_image_width > g_jpg_scale_x_above[SCL_EIGHTH]) || (g_image_height > g_jpg_scale_y_above[SCL_EIGHTH])) {
+        g_image_scale = 8;
+      } else if ((g_image_width > g_jpg_scale_x_above[SCL_QUARTER]) || (g_image_height > g_jpg_scale_y_above[SCL_QUARTER])) {
+        g_image_scale = 4;
+      } else if ((g_image_width > g_jpg_scale_x_above[SCL_HALF]) || (g_image_height > g_jpg_scale_y_above[SCL_HALF])) {
+        g_image_scale = 2;
+      }
     }
+
+    if (fErase && (((g_image_width / g_image_scale) < g_tft_width) || ((g_image_height / g_image_scale) < g_image_height))) {
+      FillScreen((uint16_t)g_background_color);
+    }
+
+    if (g_center_image) {
+      g_image_offset_x = (g_tft_width - (png.getWidth() / g_image_scale)) / 2;
+      g_image_offset_y = (g_tft_height - (png.getHeight() / g_image_scale)) / 2;
+    } else {
+      g_image_offset_x = 0;
+      g_image_offset_y = 0;
+    }
+
+    Serial.print("Scale: 1/"); Serial.print(g_image_scale); 
+    Serial.print(" Image Offsets ("); Serial.print(g_image_offset_x); Serial.print(", ");  Serial.print(g_image_offset_y); 
+    Serial.println(")");
+    uint16_t *usPixels = (uint16_t *)malloc(g_image_width * ((g_image_scale == 1) ? 16 : g_image_scale) * sizeof(uint16_t));
+    if (usPixels) {
+      rc = png.decode(usPixels, 0);
+      png.close();
+      free(usPixels);
+    } else
+      Serial.println("Error could not allocate line buffer");
+  } else {
+    Serial.print("Was not a valid PNG file RC:"); Serial.println(rc, DEC);
   }
+}
+
+int32_t myReadPNG(PNGFILE *handle, uint8_t *buffer, int32_t length) {
+  if (!myfile) return 0;
+  return fread(buffer, 1, length, myfile);
+}
+int32_t mySeekPNG(PNGFILE *handle, int32_t position) {
+  if (!myfile) return 0;
+  return fseek(myfile, position, SEEK_SET);
+}
+
+// Function to draw pixels to the display
+void PNGDraw(PNGDRAW *pDraw) {
+  uint16_t *usPixels = (uint16_t *)pDraw->pUser;
+  if (g_image_scale == 1) {
+    uint16_t *pusRow = usPixels + pDraw->iWidth * (pDraw->y & 0xf);  // we have 16 lines to work with
+    png.getLineAsRGB565(pDraw, pusRow, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
+    // but we will output 8 lines at time.
+    if ((pDraw->y == g_image_height - 1) || ((pDraw->y & 0x7) == 0x7)) {
+      //      WaitforWRComplete(); // make sure previous writes are done
+      writeClippedRect(0, pDraw->y & 0xfff8, pDraw->iWidth, (pDraw->y & 0x7) + 1,
+                       usPixels + (pDraw->y & 0x8) * pDraw->iWidth, false);
+    }
+  } else {
+    uint16_t *pusRow = usPixels + pDraw->iWidth * (pDraw->y % g_image_scale);
+    png.getLineAsRGB565(pDraw, pusRow, PNG_RGB565_LITTLE_ENDIAN, 0xffffffff);
+    ScaleDownWriteClippedRect(pDraw->y, pDraw->iWidth, usPixels);
+  }
+}
 
 
 #endif
@@ -1072,89 +1137,86 @@ void ScaleDownWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
 //=============================================================================
 // Touch screen support
 //=============================================================================
-  void ProcessTouchScreen() {
-    // See if there's any  touch data for us
-    //  if (ts.bufferEmpty()) {
-    //    return;
-    //  }
-    // You can also wait for a touch
-    if (!ts.touched()) {
-      g_fast_mode = false;
-      return;
-    }
+#if 0
+void ProcessTouchScreen() {
+  // See if there's any  touch data for us
+  //  if (ts.bufferEmpty()) {
+  //    return;
+  //  }
+  // You can also wait for a touch
+  if (!ts.touched()) {
+    g_fast_mode = false;
+    return;
+  }
 
-    // first hack, if screen pressed go very fast
-    g_fast_mode = true;
+  // first hack, if screen pressed go very fast
+  g_fast_mode = true;
 
-    // Retrieve a point
-    TS_Point p = ts.getPoint();
+  // Retrieve a point
+  TS_Point p = ts.getPoint();
 
-    // p is in ILI9341_t3 setOrientation 1 settings. so we need to map x and y differently.
+  // p is in ILI9341_t3 setOrientation 1 settings. so we need to map x and y differently.
 
-    Serial.print("X = ");
-    Serial.print(p.x);
-    Serial.print("\tY = ");
-    Serial.print(p.y);
-    Serial.print("\tPressure = ");
-    Serial.print(p.z);
+  Serial.print("X = ");
+  Serial.print(p.x);
+  Serial.print("\tY = ");
+  Serial.print(p.y);
+  Serial.print("\tPressure = ");
+  Serial.print(p.z);
 
 
-    // Scale from ~0->4000 to tft.width using the calibration #'s
+  // Scale from ~0->4000 to tft.width using the calibration #'s
 #if 1  // SCREEN_ORIENTATION_1
-    p.x = map(p.x, TS_MINX, TS_MAXX, 0, g_tft_width);
-    p.y = map(p.y, TS_MINY, TS_MAXY, 0, g_tft_height);
+  p.x = map(p.x, TS_MINX, TS_MAXX, 0, g_tft_width);
+  p.y = map(p.y, TS_MINY, TS_MAXY, 0, g_tft_height);
 #else
 
     uint16_t px = map(p.y, TS_MAXY, TS_MINY, 0, g_tft_width);
     p.y = map(p.x, TS_MINX, TS_MAXX, 0, g_tft_height);
     p.x = px;
 #endif
-    Serial.print(" (");
-    Serial.print(p.x);
-    Serial.print(", ");
-    Serial.print(p.y);
-    Serial.println(")");
-  }
-  void listFiles(FS * pfs) {
-    Serial.print("\n Space Used = ");
-    Serial.println(pfs->usedSize());
-    Serial.print("Filesystem Size = ");
-    Serial.println(pfs->totalSize());
+  Serial.print(" (");
+  Serial.print(p.x);
+  Serial.print(", ");
+  Serial.print(p.y);
+  Serial.println(")");
+}
+#endif
+char g_path[512];  // should not get this long
+void listFiles() {
+  strcpy(g_path, "/usb/");
+#ifdef LATER
+  Serial.print("\n Space Used = ");
+  Serial.println(pfs->usedSize());
+  Serial.print("Filesystem Size = ");
+  Serial.println(pfs->totalSize());
+#endif
+  printDirectory(0);  // we are at the root directory.
+}
 
-    printDirectory(pfs);
-  }
-
-
-  void printDirectory(FS * pfs) {
-    Serial.println("Directory\n---------");
-    printDirectory(pfs->open("/"), 0);
-    Serial.println();
-  }
-
-  void printDirectory(File dir, int numSpaces) {
-    while (true) {
-      File entry = dir.openNextFile();
-      if (!entry) {
-        //Serial.println("** no more files **");
-        break;
-      }
-      printSpaces(numSpaces);
-      Serial.print(entry.name());
-      if (entry.isDirectory()) {
-        Serial.println("/");
-        printDirectory(entry, numSpaces + 2);
-      } else {
-        // files have sizes, directories do not
-        printSpaces(36 - numSpaces - strlen(entry.name()));
-        Serial.print("  ");
-        Serial.println(entry.size(), DEC);
-      }
-      entry.close();
+void printDirectory(int numSpaces) {
+  DIR *d = opendir(g_path);
+  if (!d) return;
+  struct dirent *dir_entry;
+  if (numSpaces > 0) strcat(g_path, "/");  // if not root append /
+  int path_len = strlen(g_path);
+  while ((dir_entry = readdir(d)) != nullptr) {
+    printSpaces(numSpaces);
+    Serial.print(dir_entry->d_name);
+    if (dir_entry->d_type == DT_DIR) {
+      Serial.println("/");
+      strcpy(&g_path[path_len], dir_entry->d_name);
+      printDirectory(numSpaces + 2);
+    } else {
+      // files have sizes, directories do not
+      Serial.println();
     }
   }
+  closedir(d);
+}
 
-  void printSpaces(int num) {
-    for (int i = 0; i < num; i++) {
-      Serial.print(" ");
-    }
+void printSpaces(int num) {
+  for (int i = 0; i < num; i++) {
+    Serial.print(" ");
   }
+}
