@@ -3,6 +3,8 @@
 // Simple image (BMP optional JPEG and PNG) display program, which if the
 // sketch is built with one of the USB Types which include MTP support
 //=============================================================================
+#include <FATFileSystem.h>
+#include <Arduino_USBHostMbed5.h>
 #include <SPI.h>
 #include <SdFat.h>
 #include "sdios.h"
@@ -10,7 +12,9 @@
 #include <elapsedMillis.h>
 #include <GIGA_digitalWriteFast.h>
 
-#define MTP_MAX_FILENAME_LEN 256
+#include "WrapperFile.h"
+
+#define MAX_FILENAME_LEN 256
 
 /***************************************************
   Some of this code originated with the spitftbitmap.ino sketch
@@ -38,6 +42,7 @@
 
 // support for ILI9341_t3n - that adds additional features
 #include <ILI9341_GIGA_n.h>
+
 
 
 //-----------------------------------------------------------------------------
@@ -93,7 +98,6 @@ XPT2046_Touchscreen ts(TOUCH_CS, TOUCH_TIRQ);
 int g_tft_width = 0;
 int g_tft_height = 0;
 
-bool g_use_efb = true;
 
 // SD_FAT_TYPE = 0 for SdFat/File as defined in SdFatConfig.h,
 // 1 for FAT16/FAT32, 2 for exFAT, 3 for FAT16/FAT32 and exFAT.
@@ -116,16 +120,29 @@ const uint8_t SD_CS_PIN = SDCARD_SS_PIN;
 #elif ENABLE_DEDICATED_SPI
 #define SD_CONFIG SdSpiConfig(CS_SD, DEDICATED_SPI, SPI_CLOCK)
 #else  // HAS_SDIO_CLASS
-#define SD_CONFIG SdSpiConfig(CS_SD, SHARED_SPI, SPI_CLOCK)
+#define SD_CONFIG SdSpiConfig(CS_SD, SHARED_SPI, SPI_CLOCK, &SPI1)
 #endif  // HAS_SDIO_CLASS
 
 
+//-----------------------------------
+// SD specific
+//-----------------------------------
 SdFs SD;
-FsFile file;
-FsFile rootFile;
+FsFile root_SD;
 
+//-----------------------------------
+// USB specific
+//-----------------------------------
+USBHostMSD msd;
+mbed::FATFileSystem usb("usb");
+DIR *root_dir = nullptr;  //
+
+bool g_show_usb_files = false;
+
+//-----------------------------------
+//-----------------------------------
 #define MAX_FILENAME_LEN 256
-FsFile myfile;  // used for JPG and PNG file
+
 
 bool g_fast_mode = false;
 bool g_picture_loaded = false;
@@ -177,6 +194,7 @@ void setup(void) {
   // Keep the SD card inactive while working the display.
   delay(20);
 
+  Serial.begin(115200);
   while (!Serial && millis() < 3000)
     ;
   // give chance to debug some display startups...
@@ -214,40 +232,78 @@ void setup(void) {
   g_tft_width = tft.width();
   g_tft_height = tft.height();
 
-  FillScreen(BLUE);
+  tft.fillScreen(BLUE);
 
   // See if we can initialize the File system
-  Serial.print("Mounting USB device... ");
+  Serial.print("Checking for USB and/or SD Device");
 
   int err;
-  elapsedMillis em = 10000;  // fire the first time through
+  elapsedMillis em;  // fire the first time through
   tft.setTextSize(2);
 
+  bool device_started = false;
+  bool sd_started = false;
+  bool usb_started = false;
 
-  while (!SD.begin(SD_CONFIG)) {
-    if (em > 10000) {
-      FillScreen(RED);
-      tft.print("Error starting SD device: ");
-      tft.print(err, DEC);
-      Serial.print("Error starting SDSB device ");
-      Serial.println(err);
+  // Wait for at least 1 device to start and a little extra.
+  tft.fillScreen(RED);
+  tft.setTextColor(RED, WHITE);
+  tft.setCursor(1, 1);
+  tft.print("Waiting for SD or USB");
+  while (!(device_started && (em > 4500))) {
+    if (sd_started && usb_started) break;
+    if (!sd_started) {
+      if (SD.begin(SD_CONFIG)) {
+        sd_started = true;
+        device_started = true;
+        tft.setCursor(1, 40);
+        tft.setTextColor(RED, WHITE);
+        tft.println("SD Started");
+        if (!root_SD.open("/")) {
+          tft.print("Failed to open root_SD directory");
+        }
+        Serial.print("SD Started");
+        em = 0;
+      }
+    }
+    if (!usb_started) {
+      if (!msd.connected()) {
+        if (msd.connect()) Serial.println("MSD Connect");
+      }
+      if (msd.connected()) {
+        if (usb.mount(&msd) == 0) {
+          usb_started = true;
+          device_started = true;
+          tft.setCursor(1, 140);
+          tft.setTextColor(RED, WHITE);
+          tft.println("USB Started");
+          root_dir = opendir("/usb/");
+          Serial.print("USB Started");
+          em = 0;
+        }
+      }
+    }
+    if (em > 5000) {
+      static uint8_t wait_count = 0;
+      wait_count++;
+      tft.setCursor(300, 1);
+      tft.write((wait_count & 1) ? '*' : ' ');
       em = 0;
     }
-    delay(1000);
   }
   Serial.println("Started.");
-
-  if (!rootFile.open("/")) {
-    FillScreen(RED);
-    tft.print("Failed to open rootFile directory");
-  }
-
-
-  Serial.begin(115200);
+  g_show_usb_files = !root_SD;
 
 
   Serial.println("OK!");
   emDisplayed = g_display_image_time;
+
+  Serial.println("Simple Serial commands:");
+  Serial.println("  u - switch drives");
+  Serial.println("  d - toggle debug on and off");
+  Serial.println("  s - toggle step mode (Pause after each picture");
+  Serial.println("  l - list files on current drive");
+  Serial.println("  <Anything else> will pause");
 
   //-----------------------------------------------------------------------------
   // Initialize options and then read optional config file
@@ -294,18 +350,37 @@ void loop() {
 
     Serial.println("\nLoop looking for image file");
 
+    // BUGBUG: this is not overly clean, but tries to allow two different
+    // types of file systems...
+    WrapperFile wpfImage;
     FsFile imageFile;
-    char file_name[MTP_MAX_FILENAME_LEN];
+    struct dirent *dir_entry;
+
+    char file_name[MAX_FILENAME_LEN];
     for (;;) {
-      imageFile = rootFile.openNextFile();
-      if (!imageFile) {
-        if (did_rewind) break;  // only go around once.
-        rootFile.rewindDirectory();
-        did_rewind = true;
-        continue;  // try again
+      if (!g_show_usb_files) {
+        imageFile = root_SD.openNextFile();
+        if (!imageFile) {
+          if (did_rewind) break;  // only go around once.
+          root_SD.rewindDirectory();
+          did_rewind = true;
+          continue;  // try again
+        }
+        // maybe should check file name quick and dirty
+        name_len = imageFile.getName(file_name, sizeof(file_name));
+      } else {
+        dir_entry = readdir(root_dir);
+        if (!dir_entry) {
+          if (did_rewind) break;  // only go around once.
+          rewinddir(root_dir);
+          continue;  // try again
+        }
+        // maybe should check file name quick and dirty
+        if (!dir_entry->d_name) continue;
+        strcpy(file_name, "/usb/");
+        strcat(file_name, dir_entry->d_name);
+        name_len = strlen(file_name);
       }
-      // maybe should check file name quick and dirty
-      name_len = imageFile.getName(file_name, sizeof(file_name));
 
       if ((strcmp(&file_name[name_len - 4], ".bmp") == 0) || (strcmp(&file_name[name_len - 4], ".BMP") == 0)) bmp_file = true;
       if ((strcmp(&file_name[name_len - 4], ".jpg") == 0) || (strcmp(&file_name[name_len - 4], ".JPG") == 0)) jpg_file = true;
@@ -319,23 +394,29 @@ void loop() {
     //---------------------------------------------------------------------------
     // Found a file so try to process it.
     //---------------------------------------------------------------------------
-    if (imageFile) {
+    if (!g_show_usb_files) {
+      wpfImage.setFile(imageFile);
+    } else {
+
+      FILE *bmpFile = fopen(file_name, "r+");
+      wpfImage.setFile(bmpFile);
+    }
+
+    if (wpfImage) {
 
       elapsedMillis emDraw = 0;
       g_WRCount = 0;
       if (bmp_file) {
-        bmpDraw(imageFile, file_name, true);
+        bmpDraw(wpfImage, file_name, true);
 
 #ifdef __JPEGDEC__
       } else if (jpg_file) {
-        processJPGFile(file_name, true);
-        imageFile.close();
+        processJPGFile(wpfImage, file_name, true);
 #endif
 
 #ifdef __PNGDEC__
       } else if (png_file) {
-        processPNGFile(file_name, true);
-        imageFile.close();
+        processPNGFile(wpfImage, file_name, true);
 #endif
       }
       Serial.print("!!File:");
@@ -345,7 +426,7 @@ void loop() {
       Serial.print(" writeRect calls:");
       Serial.println(g_WRCount, DEC);
     } else {
-      FillScreen(GREEN);
+      tft.fillScreen(GREEN);
       tft.setTextColor(WHITE);
       tft.setTextSize(2);
       tft.println(F("No Files Found"));
@@ -370,9 +451,19 @@ void loop() {
       while ((ch = Serial.read()) == -1) {}  // in case at startup...
       while (ch != -1) {
         if (ch == 'd') g_debug_output = !g_debug_output;
-        if (ch == 's') g_stepMode = !g_stepMode;
-        if (ch == 'f') g_use_efb = !g_use_efb;
-        if (ch == 'l') listFiles();
+        else if (ch == 's') g_stepMode = !g_stepMode;
+        else if (ch == 'l') listFiles();
+        else if (ch == 'u') {
+          if (g_show_usb_files) {
+            if (root_SD) {
+              g_show_usb_files = false;
+              Serial.println("Now showing files from SD Card");
+            }
+          } else if (root_dir) {
+            g_show_usb_files = false;
+            Serial.println("Now showing files from USB Drive");
+          }
+        }
 
         ch = Serial.read();
       }
@@ -384,9 +475,18 @@ void loop() {
       while ((ch = Serial.read()) == -1) {}
       while (ch != -1) {
         if (ch == 'd') g_debug_output = !g_debug_output;
-        if (ch == 's') g_stepMode = !g_stepMode;
-        if (ch == 'f') g_use_efb = !g_use_efb;
-        if (ch == 'l') listFiles();
+        else if (ch == 's') g_stepMode = !g_stepMode;
+        else if (ch == 'u') {
+          if (g_show_usb_files) {
+            if (root_SD) {
+              g_show_usb_files = false;
+              Serial.println("Now showing files from SD Card");
+            }
+          } else if (root_dir) {
+            g_show_usb_files = false;
+            Serial.println("Now showing files from USB Drive");
+          }
+        } else if (ch == 'l') listFiles();
         ch = Serial.read();
       }
     }
@@ -547,7 +647,7 @@ void ShowAllOptionValues() {
   Serial.println("\n----------------------------------");
   Serial.print("Sketch uses Option file: ");
   Serial.print(options_file_name);
-  Serial.println(" at the rootFile of SD Card");
+  Serial.println(" at the root_SD of SD Card");
   Serial.println("\t<All key names>=<current key value");
   for (uint8_t key_index = 0; key_index < (sizeof(keyNameValues) / sizeof(keyNameValues[0])); key_index++) {
     Serial.print("\t");
@@ -559,9 +659,6 @@ void ShowAllOptionValues() {
 }
 
 
-inline void FillScreen(uint16_t color) {
-  tft.fillScreen(color);
-}
 inline uint16_t Color565(uint8_t r, uint8_t g, uint8_t b) {
   return tft.color565(r, g, b);
 }
@@ -581,7 +678,7 @@ inline void Color565ToRGB(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {
 // good balance for tiny AVR chips.
 
 #define BUFFPIXEL 80
-void bmpDraw(FsFile &bmpFile, const char *filename, bool fErase) {
+void bmpDraw(WrapperFile &bmpFile, const char *filename, bool fErase) {
 
   //  FILE     bmpFile;
   int image_width, image_height;        // W+H in pixels
@@ -689,7 +786,7 @@ void bmpDraw(FsFile &bmpFile, const char *filename, bool fErase) {
           Serial.println(")");
 
           if (fErase && (((image_width * g_image_scale_up) < g_tft_width) || ((image_height * g_image_scale_up) < image_height))) {
-            FillScreen((uint16_t)g_background_color);
+            tft.fillScreen((uint16_t)g_background_color);
           }
 
           // now we will allocate large buffer for SCALE*width
@@ -713,7 +810,7 @@ void bmpDraw(FsFile &bmpFile, const char *filename, bool fErase) {
           Serial.println(")");
 
           if (fErase && (((image_width / g_image_scale) < g_tft_width) || ((image_height / g_image_scale) < image_height))) {
-            FillScreen((uint16_t)g_background_color);
+            tft.fillScreen((uint16_t)g_background_color);
           }
           // now we will allocate large buffer for SCALE*width
           usPixels = (uint16_t *)malloc(image_width * g_image_scale * sizeof(uint16_t));
@@ -774,14 +871,14 @@ void bmpDraw(FsFile &bmpFile, const char *filename, bool fErase) {
 // BMP data is stored little-endian, Arduino is little-endian too.
 // May need to reverse subscript order if porting elsewhere.
 
-uint16_t read16(FsFile &f) {
+uint16_t read16(WrapperFile &f) {
   uint16_t result;
   ((uint8_t *)&result)[0] = f.read();  // LSB
   ((uint8_t *)&result)[1] = f.read();  // MSB
   return result;
 }
 
-uint32_t read32(FsFile &f) {
+uint32_t read32(WrapperFile &f) {
   uint32_t result;
   ((uint8_t *)&result)[0] = f.read();  // LSB
   ((uint8_t *)&result)[1] = f.read();
@@ -791,17 +888,6 @@ uint32_t read32(FsFile &f) {
 }
 
 
-
-#if defined(__JPEGDEC__) || defined(__PNGDEC__)
-void *myOpen(const char *filename, int32_t *size) {
-  myfile = SD.open(filename);
-  *size = myfile.size();
-  return &myfile;
-}
-void myClose(void *handle) {
-  if (myfile) myfile.close();
-}
-#endif
 
 //=============================================================================
 // TFT Helper functions to work on ILI9341_t3
@@ -922,13 +1008,17 @@ void ScaleDownWriteClippedRect(int row, int image_width, uint16_t *usPixels) {
 JPEGDEC jpeg;
 
 
-void processJPGFile(const char *name, bool fErase) {
+void processJPGFile(WrapperFile &jpgFile, const char *name, bool fErase) {
+  int image_size = jpgFile.size();
+  jpgFile.seek(0);
   Serial.println();
-  Serial.print(F("Loading JPG image '"));
+  Serial.print((uint32_t)&jpgFile, HEX);
+  Serial.print(F(" Loading JPG image '"));
   Serial.print(name);
-  Serial.println('\'');
+  Serial.print("' ");
+  Serial.println(image_size, DEC);
   uint8_t scale = 1;
-  if (jpeg.open(name, myOpen, myClose, myReadJPG, mySeekJPG, JPEGDraw)) {
+  if (jpeg.open((void *)&jpgFile, image_size, nullptr, myReadJPG, mySeekJPG, JPEGDraw)) {
     int image_width = jpeg.getWidth();
     int image_height = jpeg.getHeight();
     int decode_options = 0;
@@ -971,7 +1061,7 @@ void processJPGFile(const char *name, bool fErase) {
         }
     }
     if (fErase && ((image_width / scale < g_tft_width) || (image_height / scale < g_tft_height))) {
-      FillScreen((uint16_t)g_background_color);
+      tft.fillScreen((uint16_t)g_background_color);
     }
 
     if (g_center_image) {
@@ -994,16 +1084,17 @@ void processJPGFile(const char *name, bool fErase) {
   } else {
     Serial.println("Was not a valid jpeg file");
   }
+  jpgFile.close();
 }
 
 
-int32_t myReadJPG(JPEGFILE *handle, uint8_t *buffer, int32_t length) {
-  if (!myfile) return 0;
-  return myfile.read(buffer, length);
+int32_t myReadJPG(JPEGFILE *pjpegfile, uint8_t *buffer, int32_t length) {
+  if (!pjpegfile || !pjpegfile->fHandle) return 0;
+  return ((WrapperFile *)(pjpegfile->fHandle))->read(buffer, length);
 }
-int32_t mySeekJPG(JPEGFILE *handle, int32_t position) {
-  if (!myfile) return 0;
-  return myfile.seek(position);
+int32_t mySeekJPG(JPEGFILE *pjpegfile, int32_t position) {
+  if (!pjpegfile || !pjpegfile->fHandle) return 0;
+  return ((WrapperFile *)(pjpegfile->fHandle))->seek(position);
 }
 
 int JPEGDraw(JPEGDRAW *pDraw) {
@@ -1029,14 +1120,13 @@ int JPEGDraw(JPEGDRAW *pDraw) {
 #ifdef __PNGDEC__
 PNG png;
 
-void processPNGFile(const char *name, bool fErase) {
-  int rc;
-
+void processPNGFile(WrapperFile &pngFile, const char *name, bool fErase) {
   Serial.println();
   Serial.print(F("Loading PNG image '"));
   Serial.print(name);
   Serial.println('\'');
-  rc = png.open((const char *)name, myOpen, myClose, myReadPNG, mySeekPNG, PNGDraw);
+  // hack pass pointer to file as the name...
+  int rc = png.open((const char *)(void *)&pngFile, myOpen, nullptr, myReadPNG, mySeekPNG, PNGDraw);
   if (rc == PNG_SUCCESS) {
     g_image_width = png.getWidth();
     g_image_height = png.getHeight();
@@ -1072,7 +1162,7 @@ void processPNGFile(const char *name, bool fErase) {
     }
 
     if (fErase && (((g_image_width / g_image_scale) < g_tft_width) || ((g_image_height / g_image_scale) < g_image_height))) {
-      FillScreen((uint16_t)g_background_color);
+      tft.fillScreen((uint16_t)g_background_color);
     }
 
     if (g_center_image) {
@@ -1101,15 +1191,25 @@ void processPNGFile(const char *name, bool fErase) {
     Serial.print("Was not a valid PNG file RC:");
     Serial.println(rc, DEC);
   }
+  pngFile.close();
 }
 
-int32_t myReadPNG(PNGFILE *handle, uint8_t *buffer, int32_t length) {
-  if (!myfile) return 0;
-  return myfile.read(buffer, length);
+// Hack simply pass back pointer to file...
+void *myOpen(const char *filename, int32_t *size) {
+  WrapperFile *pngFile = (WrapperFile *)filename;
+  *size = pngFile->size();
+  return pngFile;
 }
-int32_t mySeekPNG(PNGFILE *handle, int32_t position) {
-  if (!myfile) return 0;
-  return myfile.seek(position);
+
+
+int32_t myReadPNG(PNGFILE *ppngfile, uint8_t *buffer, int32_t length) {
+  if (!ppngfile || !ppngfile->fHandle) return 0;
+  return ((WrapperFile *)(ppngfile->fHandle))->read(buffer, length);
+}
+
+int32_t mySeekPNG(PNGFILE *ppngfile, int32_t position) {
+  if (!ppngfile || !ppngfile->fHandle) return 0;
+  return ((WrapperFile *)(ppngfile->fHandle))->seek(position);
 }
 
 // Function to draw pixels to the display
@@ -1182,6 +1282,7 @@ void ProcessTouchScreen() {
   Serial.println(")");
 }
 #endif
+#if 0
 char g_path[512];  // should not get this long
 void listFiles() {
   strcpy(g_path, "/usb/");
@@ -1191,14 +1292,14 @@ void listFiles() {
   Serial.print("Filesystem Size = ");
   Serial.println(pfs->totalSize());
 #endif
-  printDirectory(0);  // we are at the rootFile directory.
+  printDirectory(0);  // we are at the root_SD directory.
 }
 
 void printDirectory(int numSpaces) {
   DIR *d = opendir(g_path);
   if (!d) return;
   struct dirent *dir_entry;
-  if (numSpaces > 0) strcat(g_path, "/");  // if not rootFile append /
+  if (numSpaces > 0) strcat(g_path, "/");  // if not root_SD append /
   int path_len = strlen(g_path);
   while ((dir_entry = readdir(d)) != nullptr) {
     printSpaces(numSpaces);
@@ -1220,3 +1321,50 @@ void printSpaces(int num) {
     Serial.print(" ");
   }
 }
+#else
+  void listFiles() {
+    Serial.print("\n Space Used = ");
+    uint64_t used_size = (SD.clusterCount() - SD.freeClusterCount())
+                         * (uint64_t)SD.bytesPerCluster();
+
+    Serial.println(used_size, DEC);
+    Serial.print("Filesystem Size = ");
+    uint64_t total_size = SD.clusterCount() * SD.bytesPerCluster();
+    Serial.println(total_size);
+
+    Serial.println("Directory\n---------");
+    printDirectory(SD.open("/"), 0);
+    Serial.println();
+  }
+
+
+  void printDirectory(FsFile dir, int numSpaces) {
+    char file_name[MAX_FILENAME_LEN];
+    while (true) {
+      FsFile entry = dir.openNextFile();
+      if (!entry) {
+        //Serial.println("** no more files **");
+        break;
+      }
+      printSpaces(numSpaces);
+      size_t name_len = entry.getName(file_name, sizeof(file_name));
+      Serial.print(file_name);
+      if (entry.isDirectory()) {
+        Serial.println("/");
+        printDirectory(entry, numSpaces + 2);
+      } else {
+        // files have sizes, directories do not
+        printSpaces(36 - numSpaces - name_len);
+        Serial.print("  ");
+        Serial.println(entry.size(), DEC);
+      }
+      entry.close();
+    }
+  }
+
+  void printSpaces(int num) {
+    for (int i = 0; i < num; i++) {
+      Serial.print(" ");
+    }
+  }
+#endif
