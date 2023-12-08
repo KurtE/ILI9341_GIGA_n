@@ -64,8 +64,13 @@
 
 
 ILI9341_GIGA_n::SPI_Hardware_info_t ILI9341_GIGA_n::s_spi_hardware_mapping[2] = {
+#if defined(ARDUINO_GIGA)
   {&SPI,  (SPI_TypeDef *) SPI1_BASE, &dmaInterrupt, 38, 37},
   {&SPI1, (SPI_TypeDef *) SPI5_BASE, &dmaInterrupt1, 86, 85}
+#elif defined(ARDUINO_PORTENTA_H7_M7)
+  {&SPI,  (SPI_TypeDef *) SPI2_BASE, &dmaInterrupt, 40, 39},
+  {nullptr, (SPI_TypeDef *) nullptr, &dmaInterrupt1, 86, 85}
+#endif
 };
 
 

@@ -6,6 +6,12 @@
 #include <FATFileSystem.h>
 #include <Arduino_USBHostMbed5.h>
 #include <SPI.h>
+
+#ifdef ARDUINO_PORTENTA_H7_M7
+#include "SDMMCBlockDevice.h"
+#include "FATFileSystem.h"
+#endif
+
 #include <SdFat.h>
 #include "sdios.h"
 
@@ -55,6 +61,14 @@
 #define TS_MINY 529
 #define TS_MAXX 3729
 #define TS_MAXY 3711
+
+#ifdef ARDUINO_PORTENTA_H7_M7
+#define TFT_DC 5
+#define TFT_RST 11
+#define TFT_CS 7
+ILI9341_GIGA_n tft(&SPI, TFT_CS, TFT_DC, TFT_RST);
+#define CS_SD 6
+#else
 #define USE_SPI1
 #ifdef USE_SPI1
 #define TFT_DC 9
@@ -66,6 +80,9 @@ ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 #define TFT_RST 26
 #define TFT_CS 22
 ILI9341_GIGA_n tft(&SPI, TFT_CS, TFT_DC, TFT_RST, DMA1_Stream3);
+#endif
+#define CS_SD 23
+
 #endif
 
 #define SUPPORTS_XPT2046_TOUCH
@@ -103,41 +120,48 @@ int g_tft_height = 0;
 // 1 for FAT16/FAT32, 2 for exFAT, 3 for FAT16/FAT32 and exFAT.
 #define SD_FAT_TYPE 3
 // SDCARD_SS_PIN is defined for the built-in SD on some boards.
-#ifndef SDCARD_SS_PIN
-const uint8_t SD_CS_PIN = SS;
-#else   // SDCARD_SS_PIN
+//#ifndef SDCARD_SS_PIN
+//const uint8_t CS_SD_PIN = SS;
+//#else   // SDCARD_SS_PIN
 // Assume built-in SD is used.
-const uint8_t SD_CS_PIN = SDCARD_SS_PIN;
-#endif  // SDCARD_SS_PIN
+//const uint8_t CS_SD_PIN = SDCARD_SS_PIN;
+//#endif  // SDCARD_SS_PIN
 
 // Try max SPI clock for an SD. Reduce SPI_CLOCK if errors occur.
-#define CS_SD 23
-#define SPI_CLOCK SD_SCK_MHZ(50)
+#define SPI_CLOCK SD_SCK_MHZ(30)
 
 // Try to select the best SD card configuration.
-#if HAS_SDIO_CLASS
-#define SD_CONFIG SdioConfig(FIFO_SDIO)
-#elif ENABLE_DEDICATED_SPI
-#define SD_CONFIG SdSpiConfig(CS_SD, DEDICATED_SPI, SPI_CLOCK)
-#else  // HAS_SDIO_CLASS
-#define SD_CONFIG SdSpiConfig(CS_SD, SHARED_SPI, SPI_CLOCK, &SPI1)
-#endif  // HAS_SDIO_CLASS
+//#if HAS_SDIO_CLASS
+//#define SD_CONFIG SdioConfig(FIFO_SDIO)
+//#elif ENABLE_DEDICATED_SPI
+//#define SD_CONFIG SdSpiConfig(CS_SD, DEDICATED_SPI, SPI_CLOCK)
+//#else  // HAS_SDIO_CLASS
+#define SD_CONFIG SdSpiConfig(CS_SD, SHARED_SPI, SPI_CLOCK)
+//#endif  // HAS_SDIO_CLASS
 
 
 //-----------------------------------
 // SD specific
 //-----------------------------------
+#ifdef ARDUINO_PORTENTA_H7_M7
+SDMMCBlockDevice block_device;
+mbed::FATFileSystem sdio("sd");
+DIR *root_SDIO = nullptr;  //
+#endif
+
+#ifdef CS_SD
 SdFs SD;
 FsFile root_SD;
+#endif
 
 //-----------------------------------
 // USB specific
 //-----------------------------------
 USBHostMSD msd;
 mbed::FATFileSystem usb("usb");
-DIR *root_dir = nullptr;  //
+DIR *root_USB = nullptr;  //
 
-bool g_show_usb_files = false;
+
 
 //-----------------------------------
 //-----------------------------------
@@ -181,7 +205,26 @@ uint8_t g_image_scale_up = 0;
 uint32_t g_WRCount = 0;  // debug count how many time writeRect called
 
 
+#define USB_DRIVE 0x01
+#define SDIO_DRIVE 0x02
+#define SD_DRIVE 0x04
 
+#ifdef ARDUINO_PORTENTA_H7_M7
+#ifdef CS_SD
+#define ALL_STARTED (USB_DRIVE | SDIO_DRIVE | SD_DRIVE)
+#else
+#define ALL_STARTED (USB_DRIVE | SDIO_DRIVE)
+#endif
+#else
+#ifdef CS_SD
+#define ALL_STARTED (USB_DRIVE | SD_DRIVE)
+#else
+#define ALL_STARTED (USB_DRIVE)
+#endif
+#endif
+
+uint8_t g_devices_started = 0;  // no devices started
+uint8_t g_current_device = 0;
 
 //****************************************************************************
 // Setup
@@ -206,6 +249,12 @@ void setup(void) {
   pinMode(TFT_CS, OUTPUT);
   digitalWriteFast(TFT_CS, HIGH);
 
+#ifdef CS_SD
+  Serial.print(">>> CS_SD: ");
+  Serial.println(CS_SD, DEC);
+  pinMode(CS_SD, OUTPUT);
+  digitalWrite(CS_SD, HIGH);
+#endif
 #ifdef TOUCH_CS
   pinMode(TOUCH_CS, OUTPUT);
   digitalWriteFast(TOUCH_CS, HIGH);
@@ -241,21 +290,19 @@ void setup(void) {
   elapsedMillis em;  // fire the first time through
   tft.setTextSize(2);
 
-  bool device_started = false;
-  bool sd_started = false;
-  bool usb_started = false;
 
   // Wait for at least 1 device to start and a little extra.
   tft.fillScreen(RED);
   tft.setTextColor(RED, WHITE);
   tft.setCursor(1, 1);
   tft.print("Waiting for SD or USB");
-  while (!(device_started && (em > 4500))) {
-    if (sd_started && usb_started) break;
-    if (!sd_started) {
+  while (!g_devices_started || (em < 3000)) {
+    if (g_devices_started == ALL_STARTED) break;
+#ifdef CS_SD
+    if (!(g_devices_started & SD_DRIVE)) {
+      Serial.println("calling SDBEGIN");
       if (SD.begin(SD_CONFIG)) {
-        sd_started = true;
-        device_started = true;
+        g_devices_started |= SD_DRIVE;
         tft.setCursor(1, 40);
         tft.setTextColor(RED, WHITE);
         tft.println("SD Started");
@@ -266,18 +313,33 @@ void setup(void) {
         em = 0;
       }
     }
-    if (!usb_started) {
+#endif
+#ifdef ARDUINO_PORTENTA_H7_M7
+    if (!(g_devices_started & SDIO_DRIVE)) {
+      int err = sdio.mount(&block_device);
+      if (!err) {
+        g_devices_started |= SDIO_DRIVE;
+        tft.setCursor(1, 90);
+        tft.setTextColor(RED, WHITE);
+        tft.println("SDIO Started");
+        root_SDIO = opendir("/sd");
+        Serial.print("SDIO Started");
+        em = 0;
+      }
+    }
+#endif
+
+    if (!(g_devices_started & USB_DRIVE)) {
       if (!msd.connected()) {
         if (msd.connect()) Serial.println("MSD Connect");
       }
       if (msd.connected()) {
         if (usb.mount(&msd) == 0) {
-          usb_started = true;
-          device_started = true;
+          g_devices_started |= USB_DRIVE;
           tft.setCursor(1, 140);
           tft.setTextColor(RED, WHITE);
           tft.println("USB Started");
-          root_dir = opendir("/usb/");
+          root_USB = opendir("/usb/");
           Serial.print("USB Started");
           em = 0;
         }
@@ -292,14 +354,24 @@ void setup(void) {
     }
   }
   Serial.println("Started.");
-  g_show_usb_files = !root_SD;
+
+  if (g_devices_started & USB_DRIVE) g_current_device = USB_DRIVE;
+  else if (g_devices_started & SDIO_DRIVE) g_current_device = SDIO_DRIVE;
+  else g_current_device = SD_DRIVE;
+
+  Serial.print("\n\n>>>> All started: ");
+  Serial.print(g_devices_started, HEX);
+  Serial.print(" Current: ");
+  Serial.println(g_current_device, HEX);
 
 
   Serial.println("OK!");
   emDisplayed = g_display_image_time;
 
   Serial.println("Simple Serial commands:");
-  Serial.println("  u - switch drives");
+  Serial.println("  1 - USB Drive");
+  Serial.println("  2 - SDFat Drive");
+  Serial.println("  3 - SDIO Drive");
   Serial.println("  d - toggle debug on and off");
   Serial.println("  s - toggle step mode (Pause after each picture");
   Serial.println("  l - list files on current drive");
@@ -358,7 +430,22 @@ void loop() {
 
     char file_name[MAX_FILENAME_LEN];
     for (;;) {
-      if (!g_show_usb_files) {
+#ifdef ARDUINO_PORTENTA_H7_M7
+      if (g_current_device == SDIO_DRIVE) {
+        dir_entry = readdir(root_SDIO);
+        if (!dir_entry) {
+          if (did_rewind) break;  // only go around once.
+          rewinddir(root_SDIO);
+          continue;  // try again
+        }
+        // maybe should check file name quick and dirty
+        if (!dir_entry->d_name) continue;
+        strcpy(file_name, "/sd/");
+        strcat(file_name, dir_entry->d_name);
+        name_len = strlen(file_name);
+      } else
+#endif
+        if (g_current_device == SD_DRIVE) {
         imageFile = root_SD.openNextFile();
         if (!imageFile) {
           if (did_rewind) break;  // only go around once.
@@ -369,10 +456,10 @@ void loop() {
         // maybe should check file name quick and dirty
         name_len = imageFile.getName(file_name, sizeof(file_name));
       } else {
-        dir_entry = readdir(root_dir);
+        dir_entry = readdir(root_USB);
         if (!dir_entry) {
           if (did_rewind) break;  // only go around once.
-          rewinddir(root_dir);
+          rewinddir(root_USB);
           continue;  // try again
         }
         // maybe should check file name quick and dirty
@@ -391,10 +478,16 @@ void loop() {
       if (bmp_file || jpg_file || png_file) break;
     }
 
-    //---------------------------------------------------------------------------
-    // Found a file so try to process it.
-    //---------------------------------------------------------------------------
-    if (!g_show_usb_files) {
+//---------------------------------------------------------------------------
+// Found a file so try to process it.
+//---------------------------------------------------------------------------
+#ifdef ARDUINO_PORTENTA_H7_M7
+    if (g_current_device == SDIO_DRIVE) {
+      FILE *bmpFile = fopen(file_name, "r+");
+      wpfImage.setFile(bmpFile);
+    }
+#endif
+    if (g_current_device == SD_DRIVE) {
       wpfImage.setFile(imageFile);
     } else {
 
@@ -453,17 +546,7 @@ void loop() {
         if (ch == 'd') g_debug_output = !g_debug_output;
         else if (ch == 's') g_stepMode = !g_stepMode;
         else if (ch == 'l') listFiles();
-        else if (ch == 'u') {
-          if (g_show_usb_files) {
-            if (root_SD) {
-              g_show_usb_files = false;
-              Serial.println("Now showing files from SD Card");
-            }
-          } else if (root_dir) {
-            g_show_usb_files = false;
-            Serial.println("Now showing files from USB Drive");
-          }
-        }
+        MaybeSwtichDrive(ch);
 
         ch = Serial.read();
       }
@@ -476,17 +559,8 @@ void loop() {
       while (ch != -1) {
         if (ch == 'd') g_debug_output = !g_debug_output;
         else if (ch == 's') g_stepMode = !g_stepMode;
-        else if (ch == 'u') {
-          if (g_show_usb_files) {
-            if (root_SD) {
-              g_show_usb_files = false;
-              Serial.println("Now showing files from SD Card");
-            }
-          } else if (root_dir) {
-            g_show_usb_files = false;
-            Serial.println("Now showing files from USB Drive");
-          }
-        } else if (ch == 'l') listFiles();
+        else if (ch == 'l') listFiles();
+        MaybeSwtichDrive(ch);
         ch = Serial.read();
       }
     }
@@ -496,6 +570,30 @@ void loop() {
   }
 #endif
 }
+
+void MaybeSwtichDrive(int ch) {
+  switch (ch) {
+    case '1':
+      if (g_devices_started & USB_DRIVE) {
+        g_current_device = USB_DRIVE;
+        Serial.println("*** Switched to USB Drive ***");
+      }
+      break;
+    case '2':
+      if (g_devices_started & SD_DRIVE) {
+        g_current_device = SD_DRIVE;
+        Serial.println("*** Switched to SDFat Drive ***");
+      }
+      break;
+    case '3':
+      if (g_devices_started & SDIO_DRIVE) {
+        g_current_device = SDIO_DRIVE;
+        Serial.println("*** Switched to SDIO Drive ***");
+      }
+      break;
+  }
+}
+
 
 int stricmp(const char *s1, const char *s2) {
   while (*s1 != 0 && *s2 != 0) {
@@ -1321,7 +1419,7 @@ void printSpaces(int num) {
     Serial.print(" ");
   }
 }
-#else
+//#else
   void listFiles() {
     Serial.print("\n Space Used = ");
     uint64_t used_size = (SD.clusterCount() - SD.freeClusterCount())
@@ -1367,4 +1465,6 @@ void printSpaces(int num) {
       Serial.print(" ");
     }
   }
+#else
+  void listFiles() {}
 #endif
