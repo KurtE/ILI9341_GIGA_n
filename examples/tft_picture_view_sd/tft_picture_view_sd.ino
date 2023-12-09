@@ -323,7 +323,7 @@ void setup(void) {
         tft.setTextColor(RED, WHITE);
         tft.println("SDIO Started");
         root_SDIO = opendir("/sd");
-        Serial.print("SDIO Started");
+        Serial.println("SDIO Started");
         em = 0;
       }
     }

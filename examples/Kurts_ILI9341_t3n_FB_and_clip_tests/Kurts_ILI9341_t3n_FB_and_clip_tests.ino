@@ -16,6 +16,14 @@ REDIRECT_STDOUT_TO(Serial)
 #define TFT_SPEED_READ 1000000
 
 #include "SPI.h"
+#ifdef ARDUINO_PORTENTA_H7_M7
+#define TFT_DC 5
+#define TFT_RST 11
+#define TFT_CS 7
+#define TOUCH_CS  4
+ILI9341_GIGA_n tft(&SPI, TFT_CS, TFT_DC, TFT_RST);
+#else
+
 #define USE_SPI1
 #ifdef USE_SPI1
 #define TFT_DC 9
@@ -28,6 +36,9 @@ ILI9341_GIGA_n tft(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 #define TFT_CS 22
 ILI9341_GIGA_n tft(&SPI, TFT_CS, TFT_DC, TFT_RST, DMA1_Stream3);
 #endif
+
+#endif
+
 #define DEBUG_PIN 3
 
 #define USE_FRAME_BUFFER 1

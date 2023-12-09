@@ -58,8 +58,12 @@
 
 eyeInfo_t eyeInfo[] = {
   // Going to try to NO CS displays.
+  #ifdef ARDUINO_PORTENTA_H7_M7
+   {&SPI, 7, 5, 11, -1, 0, DMA1_Stream2}, // LEFT EYE display-select and wink pins, no rotation
+  #else
    {&SPI1, 7, 9, 8, -1, 0, DMA1_Stream1}, // LEFT EYE display-select and wink pins, no rotation
    {&SPI, 22, 24, 26, -1, 0, DMA1_Stream2}, // LEFT EYE display-select and wink pins, no rotation
+  #endif   
 };
 // INPUT SETTINGS (for controlling eye motion) -----------------------------
 

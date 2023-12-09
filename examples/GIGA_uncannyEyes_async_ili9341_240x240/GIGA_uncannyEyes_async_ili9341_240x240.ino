@@ -57,7 +57,11 @@ typedef struct {
   uint32_t startTime;   // Time (micros) of last state change
 } eyeBlink;
 
+#ifdef ARDUINO_PORTENTA_H7_M7
+#define NUM_EYES 1 //(sizeof(eyeInfo)/sizeof(eyeInfo[0]))
+#else
 #define NUM_EYES 2 //(sizeof(eyeInfo)/sizeof(eyeInfo[0]))
+#endif
 
 struct {                // One-per-eye structure
   displayType *display; // -> OLED/TFT object
