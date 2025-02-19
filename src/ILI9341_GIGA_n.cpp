@@ -54,7 +54,9 @@
 #include "ILI9341_GIGA_n.h"
 #include <SPI.h>
 #include <api/itoa.h>
+#ifndef __ZEPHYR__
 #include "pinDefinitions.h"
+#endif // zephyr
 #include <LibPrintf.h>
 
 
@@ -62,7 +64,7 @@
 #define HEIGHT ILI9341_TFTHEIGHT
 #define CBALLOC (ILI9341_TFTHEIGHT * ILI9341_TFTWIDTH * 2)
 
-
+#ifndef __ZEPHYR__
 ILI9341_GIGA_n::SPI_Hardware_info_t ILI9341_GIGA_n::s_spi_hardware_mapping[2] = {
 #if defined(ARDUINO_GIGA)
   {&SPI,  (SPI_TypeDef *) SPI1_BASE, &dmaInterrupt, 38, 37},
@@ -73,7 +75,7 @@ ILI9341_GIGA_n::SPI_Hardware_info_t ILI9341_GIGA_n::s_spi_hardware_mapping[2] = 
 #endif
 };
 
-
+#endif
 // Constructor when using hardware ILI9241_KINETISK__pspi->  Faster, but must
 // use SPI pins
 // specific to each board type (e.g. 11,13 for Uno, 51,52 for Mega, etc.)
@@ -113,12 +115,18 @@ ILI9341_GIGA_n::ILI9341_GIGA_n(uint8_t cs, uint8_t dc, uint8_t rst, uint8_t mosi
 // use SPI pins
 // specific to each board type (e.g. 11,13 for Uno, 51,52 for Mega, etc.)
 
-ILI9341_GIGA_n::ILI9341_GIGA_n(SPIClass *pspi, uint8_t cs, uint8_t dc, uint8_t rst, DMA_Stream_TypeDef * dmaStream) {
+#ifndef __ZEPHYR__
+ILI9341_GIGA_n::ILI9341_GIGA_n(SPIClass *pspi, uint8_t cs, uint8_t dc, uint8_t rst
+    , DMA_Stream_TypeDef * dmaStream) {
+  _dmaStream = dmaStream;
+#else
+ILI9341_GIGA_n::ILI9341_GIGA_n(SPIClass *pspi, uint8_t cs, uint8_t dc, uint8_t rst) {
+
+#endif  
   _pspi = pspi;
   _cs = cs;
   _dc = dc;
   _rst = rst;
-  _dmaStream = dmaStream;
 
   _width = WIDTH;
   _height = HEIGHT;
@@ -878,7 +886,7 @@ void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
     return;
   }
 #endif
-
+#ifndef __ZEPHYR__
   if (_miso == 0xff)
     return; // bail if not valid miso
 
@@ -928,6 +936,7 @@ void ILI9341_GIGA_n::readRect(int16_t x, int16_t y, int16_t w, int16_t h,
   // We should have received everything so should be done
   // printf("\texit: %08lx %u\n", _pgigaSpi->SR, _data_sent_not_completed);
   endSPITransaction();
+#endif  
 }
 
 // Now lets see if we can writemultiple pixels
@@ -1461,6 +1470,14 @@ void ILI9341_GIGA_n::begin(uint32_t spi_clock, uint32_t spi_clock_read) {
 
   _pspi->begin();
 
+#ifdef __ZEPHYR__
+  pinMode(_cs, OUTPUT);
+  digitalWrite(_cs, HIGH);
+
+  pinMode(_dc, OUTPUT);
+  digitalWrite(_dc, HIGH);
+  _dcpinAsserted = 0;
+#else  
   // map to hardware index.
   for (_spi_num = 0; _spi_num < (sizeof(s_spi_hardware_mapping)/sizeof(s_spi_hardware_mapping[0])); _spi_num++)
   {
@@ -1509,6 +1526,8 @@ void ILI9341_GIGA_n::begin(uint32_t spi_clock, uint32_t spi_clock_read) {
   port = port_table[pin_name >> 4];
   _dcBSRR = (__IO uint32_t *)(&port->BSRR);
   _dcpinmask = 1 << (pin_name & 0xf);
+
+#endif
 
   // toggle RST low to reset
   if (_rst < 255) {

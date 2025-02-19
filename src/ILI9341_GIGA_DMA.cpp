@@ -1,7 +1,7 @@
 /***************************************************
  * The Async(DMA) support functions.
  ***************************************************/
-
+#ifndef __ZEPHYR__ // not supported ... at least yet
 #include "ILI9341_GIGA_n.h"
 #include <SPI.h>
 #include <api/itoa.h>
@@ -843,3 +843,4 @@ void dump_dmamux(DMAMUX_Channel_TypeDef *dmuxc) {
 	}
 }
 
+#endif // zephyr

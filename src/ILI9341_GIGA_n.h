@@ -236,15 +236,18 @@ public:
   //   CS: Chip select pin,  DC: Data/Command pin
   //   RST: optional reset pin
   //   dmaStream: If using DMA which dma stream to use (DMA[12]_Stream[0-7])
+#ifndef __ZEPHYR__
   ILI9341_GIGA_n(SPIClass *pspi, uint8_t CS, uint8_t DC, uint8_t RST = 255, 
                 DMA_Stream_TypeDef * dmaStream = DMA1_Stream1);
-
+#else
+  ILI9341_GIGA_n(SPIClass *pspi, uint8_t CS, uint8_t DC, uint8_t RST = 255);
+#endif  
   // Constructor
   //   CS: Chip select pin,  DC: Data/Command pin
   //   RST: optional reset pin
   //   MOSI, SCLK, MISO: I do nothing with these, don't think there are alternatives
-  ILI9341_GIGA_n(uint8_t CS, uint8_t DC, uint8_t RST = 255, uint8_t MOSI = 11,
-              uint8_t SCLK = 13, uint8_t MISO = 12);
+  ILI9341_GIGA_n(uint8_t CS, uint8_t DC, uint8_t RST = 255, uint8_t mosi = 11,
+              uint8_t sclk = 13, uint8_t miso = 12);
   //   pspi: either  &SPI (6 pin spi connector) or &SPI1 (shield pins)
   //   CS: Chip select pin,  DC: Data/Command pin
   //   RST: optional reset pin
@@ -536,13 +539,13 @@ public:
     _updateChangedAreasOnly = updateChangedOnly;
 #endif
   }
+#ifndef __ZEPHYR__
   SPI_TypeDef *_pgigaSpi = nullptr;
   DMA_TypeDef *_pdma = nullptr;
   DMA_Stream_TypeDef *_dmaStream = DMA1_Stream1;
   DMAMUX_Channel_TypeDef *_dmamux = nullptr;
   IRQn_Type _dmaTXIrq;
   uint8_t _dma_channel;
-
 
 //protected:
   // Mapping structure from which SPI, to other info on that SPI..
@@ -556,6 +559,7 @@ public:
   } SPI_Hardware_info_t;
 
   static SPI_Hardware_info_t s_spi_hardware_mapping[2];
+#endif
 
 
   SPIClass *_pspi = nullptr;
@@ -695,9 +699,15 @@ public:
 /////////////////////////////////////////////////////////////////
 
   void beginSPITransaction(uint32_t clock) __attribute__((always_inline)) {
+#ifdef __ZEPHYR__
+      digitalWrite(_cs, LOW);
+#else      
     //digitalWrite(_cs, LOW);
     *_csBSRR = (uint32_t)(_cspinmask << 16);  // reset
+#endif
     _pspi->beginTransaction(SPISettings(clock, MSBFIRST, SPI_MODE0));
+
+#ifndef __ZEPHYR__
     uint32_t cr1 = _pgigaSpi->CR1;
     _pgigaSpi->CR1 &= ~SPI_CR1_SPE_Msk;
 
@@ -709,12 +719,17 @@ public:
 
     _pgigaSpi->CFG2 = cfg2;
     _pgigaSpi->CR1 |= (cr1 &SPI_CR1_SPE_Msk);
+#endif
 //    _data_sent_not_completed = 0; // start at 0 each time
 
   }
   void endSPITransaction() __attribute__((always_inline)) {
     _pspi->endTransaction();
+#ifdef __ZEPHYR__
+      digitalWrite(_dc, LOW);
+#else      
     *_csBSRR = (uint32_t)(_cspinmask);  // set
+#endif
     //digitalWrite(_cs, HIGH);
   }
 
@@ -726,7 +741,7 @@ public:
     uint32_t start_time_us;
     uint32_t sr = 0;
     static uint32_t wtcCallCount = 0;
-
+#ifndef __ZEPHYR__
 #if 0
     while((_data_sent_not_completed != 0) && (--to)) {
       sr = _pgigaSpi->SR;
@@ -823,30 +838,40 @@ public:
 //      Serial.print(" ");
 //      Serial.println(_data_sent_not_completed, DEC);
     }
+#endif
     _data_sent_since_last_transmit_complete = false;
   }
 
   void setCommandMode() __attribute__((always_inline)) {
     if (!_dcpinAsserted) {
+#ifdef __ZEPHYR__
+      digitalWrite(_dc, LOW);
+#else      
       waitTransmitComplete(1);
       *_dcBSRR = (uint32_t)(_dcpinmask << 16);  // reset
       //digitalWrite(_dc, LOW);
+#endif
       _dcpinAsserted = 1;
     }
   }
 
   void setDataMode() __attribute__((always_inline)) {
     if (_dcpinAsserted) {
+#ifdef __ZEPHYR__
+      digitalWrite(_dc, HIGH);
+#else      
       waitTransmitComplete(2);
       *_dcBSRR = (uint32_t)(_dcpinmask);  // set
       //digitalWrite(_dc, HIGH);
+#endif      
       _dcpinAsserted = 0;
     }
   }
 
   void outputToSPI(uint8_t c) {
-    //_pspi->transfer(c);
-#if 1
+    #ifdef __ZEPHYR__
+    _pspi->transfer(c);
+    #else
     uint32_t sr;
     uint8_t unused __attribute__((unused));
     _pgigaSpi->CR1 |= SPI_CR1_CSTART;
@@ -875,52 +900,7 @@ public:
       unused = *((__IO uint8_t *)&_pgigaSpi->RXDR);
 //      if (_data_sent_not_completed) _data_sent_not_completed--;
     }
-
-#else    
-    uint32_t sr;
-    uint8_t unused __attribute__((unused));
-    _pgigaSpi->CR1 |= SPI_CR1_CSTART;
-
-    // first read any pending data
-    uint32_t start_time_us = micros();
-    static const uint32_t TIMEOUT_US = 125;
-    uint32_t delta_time = 0;
-    while((delta_time = (micros() - start_time_us)) < TIMEOUT_US) {
-      sr = _pgigaSpi->SR;
-
-      // Check to see if there is any data in the RX FIFO
-      if (sr & SPI_SR_OVR) {
-        // have overflow, clear it
-        _pgigaSpi->IFCR = SPI_IFCR_OVRC;
-        // printf("@@@@@@@@@@ OVERFLOW @@@@@@@@@@\n");
-      }
-
-      if (sr & SPI_SR_RXP ) {
-        unused = *((__IO uint8_t *)&_pgigaSpi->RXDR);
-        if (_data_sent_not_completed) _data_sent_not_completed--;
-        continue;
-      }
-
-      // See if there is room in the FIFO
-      if (sr & SPI_SR_TXP ) break;
-
-    }
-
-    if (delta_time >=  TIMEOUT_US) {
-      Serial.println("**TO** Write:  ");
-      Serial.print("\tCR1:  "); Serial.println(_pgigaSpi->CR1, HEX);         /*!< SPI/I2S Control register 1,                      Address offset: 0x00 */
-      Serial.print("\tCR2:  "); Serial.println(_pgigaSpi->CR2, HEX);         /*!< SPI Control register 2,                          Address offset: 0x04 */
-      Serial.print("\tCFG1:  "); Serial.println(_pgigaSpi->CFG1, HEX);       /*!< SPI Configuration register 1,                    Address offset: 0x08 */
-      Serial.print("\tCFG2:  "); Serial.println(_pgigaSpi->CFG2, HEX);       /*!< SPI Configuration register 2,                    Address offset: 0x0C */
-      Serial.print("\tIER:  "); Serial.println(_pgigaSpi->IER, HEX);         /*!< SPI/I2S Interrupt Enable register,               Address offset: 0x10 */
-      Serial.print("\tSR:  "); Serial.println(_pgigaSpi->SR, HEX);           /*!< SPI/I2S Status register,                         Address offset: 0x14 */
-      delay(1000);
-    } else {
-      *((__IO uint8_t *)&_pgigaSpi->TXDR) = c;
-      _data_sent_not_completed++;
-      _data_sent_since_last_transmit_complete = true;
-    }
-#endif    
+#endif
   }
 
   void outputToSPI16(uint16_t data) {
