@@ -1533,6 +1533,11 @@ void ILI9341_GIGA_n::begin(uint32_t spi_clock, uint32_t spi_clock_read) {
           Serial.print("\nSelf Diagnostic: 0x"); Serial.println(x, HEX);
   */
   beginSPITransaction(_SPI_CLOCK/4);
+  if (_rst == 255) {
+    writecommand_last(ILI9341_SWRESET);
+    delay(150);
+  }
+  
   const uint8_t *addr = init_commands;
   while (1) {
     uint8_t count = *addr++;
